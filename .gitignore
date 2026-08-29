@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+accounts.secure.json
+microsoft_token_cache.secure.json
+settings.json
+*.tmp
+*.log
+ui_preview*.png
+build/
+dist/
+github_config.json
+nuitka-crash-report.xml
