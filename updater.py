@@ -20,7 +20,7 @@ import urllib.request
 import zipfile
 
 APP_VERSION = "1.0.1"
-DEFAULT_MANIFEST_URL = "https://raw.githubusercontent.com/sreng-source/Theara-Releases/main/version.json"
+DEFAULT_MANIFEST_URL = "https://raw.githubusercontent.com/panhakoko221-stack/Panha-Tool/main/dist/version.json"
 
 
 @dataclass(frozen=True)
