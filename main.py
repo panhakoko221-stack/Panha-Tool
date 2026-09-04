@@ -67,7 +67,12 @@ from PySide6.QtWidgets import (
 )
 
 from app_settings import load_settings, save_settings, valid_client_id
-from microsoft_oauth import MSAL_AVAILABLE, MicrosoftOAuthManager, OAuthError
+from microsoft_oauth import (
+    MSAL_AVAILABLE,
+    MicrosoftOAuthManager,
+    OAuthError,
+    get_access_token_from_refresh_token,
+)
 from secure_store import SecureStoreError, load_accounts, mask_password, save_accounts
 from totp import InvalidTOTPSecret, generate_totp, totp_seconds_remaining
 from updater import (
@@ -293,218 +298,284 @@ def migrate_legacy_app_data() -> int:
 
 STYLE = """
 QMainWindow, QDialog, QWidget#root {
-    background-color: #101112;
-    color: #f4f1e8;
+    background-color: #070B14;
+    color: #F8FAFC;
 }
 QWidget {
-    color: #f4f1e8;
+    color: #F8FAFC;
     font-size: 12px;
 }
 QFrame#header {
-    background-color: #171819;
-    border-bottom: 1px solid #725d1f;
+    background-color: #0B1120;
+    border-bottom: 1px solid #1E293B;
 }
 QFrame#modeNav {
-    background-color: #171819;
-    border-bottom: 1px solid #725d1f;
+    background-color: #0B1120;
+    border-bottom: 1px solid #1E293B;
 }
 QFrame#appFooter {
-    background-color: #151617;
-    border-top: 1px solid #2f3031;
+    background-color: #0B1120;
+    border-top: 1px solid #1E293B;
 }
 QLabel#appMark {
-    color: #101112;
-    background-color: #f5c542;
+    color: #070B14;
+    background-color: #00D8F6;
     border-radius: 20px;
     font-size: 20px;
     font-weight: 900;
 }
 QLabel#title {
-    color: #fff8df;
+    color: #F8FAFC;
     font-size: 22px;
     font-weight: 700;
 }
 QLabel#subtitle, QLabel#muted, QLabel#cardCaption {
-    color: #99978f;
+    color: #94A3B8;
 }
 QLabel#footerCredit {
-    color: #d7bf79;
+    color: #38BDF8;
     font-size: 11px;
     font-weight: 600;
 }
 QLabel#footerCopyright {
-    color: #77766f;
+    color: #64748B;
     font-size: 10px;
 }
 QLabel#twoFactorEyebrow {
-    color: #d7bf79;
-    font-size: 10px;
+    color: #38BDF8;
+    font-size: 11px;
     font-weight: 800;
+    letter-spacing: 1px;
 }
 QLabel#twoFactorTitle {
-    color: #fff8df;
+    color: #F8FAFC;
     font-size: 24px;
     font-weight: 800;
 }
 QLabel#twoFactorCode {
-    color: #f5c542;
-    font-family: "Consolas";
-    font-size: 38px;
+    color: #00E5FF;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 40px;
     font-weight: 900;
+    letter-spacing: 2px;
 }
-QLabel#twoFactorError { color: #ff8d82; }
+QLabel#twoFactorError { color: #F87171; font-size: 12px; }
 QFrame#card {
-    background-color: #191a1c;
-    border: 1px solid #343127;
+    background-color: #0F172A;
+    border: 1px solid #1E293B;
     border-radius: 8px;
 }
 QFrame#twoFactorCard {
-    background-color: #191a1c;
-    border: 1px solid #4a4025;
+    background-color: #0F172A;
+    border: 1.5px solid #0284C7;
+    border-radius: 14px;
+}
+QFrame#sectionCard {
+    background-color: #0B1120;
+    border: 1px solid #1E293B;
+    border-radius: 10px;
+}
+QLabel#sectionTitle {
+    color: #F8FAFC;
+    font-size: 15px;
+    font-weight: 700;
+}
+QLabel#accountsPill {
+    color: #38BDF8;
+    background-color: #0F2237;
+    border: 1px solid #0284C7;
     border-radius: 12px;
+    padding: 3px 12px;
+    font-size: 11px;
+    font-weight: 700;
 }
 QLabel#cardValue {
-    color: #f5c542;
+    color: #00D8F6;
     font-size: 22px;
     font-weight: 700;
 }
 QPushButton {
     min-height: 31px;
-    padding: 0 13px;
-    color: #e7e1d0;
-    background-color: #202224;
-    border: 1px solid #48453b;
-    border-radius: 5px;
+    padding: 0 14px;
+    color: #E2E8F0;
+    background-color: #1E293B;
+    border: 1px solid #334155;
+    border-radius: 6px;
     font-weight: 600;
 }
 QPushButton:hover {
-    color: #fff8df;
-    background-color: #2b2922;
-    border-color: #9c7b1e;
+    color: #F8FAFC;
+    background-color: #27354A;
+    border-color: #0284C7;
 }
-QPushButton:pressed { background-color: #363020; }
+QPushButton:pressed { background-color: #16202E; }
 QPushButton:disabled {
-    color: #66645e;
-    background-color: #171819;
-    border-color: #292a2b;
+    color: #475569;
+    background-color: #0B1120;
+    border-color: #1E293B;
 }
 QPushButton#primary {
-    color: #15130c;
-    background-color: #f5c542;
-    border-color: #ffd966;
+    color: #070B14;
+    background-color: #00D8F6;
+    border-color: #38BDF8;
     font-weight: 800;
 }
-QPushButton#primary:hover { background-color: #ffd45e; }
-QPushButton#danger { color: #ff9b92; border-color: #673932; }
-QPushButton#danger:hover { background-color: #3b211f; border-color: #b3544a; }
+QPushButton#primary:hover {
+    background-color: #38E1FF;
+    border-color: #7DD3FC;
+}
+QPushButton#startCyan {
+    color: #070B14;
+    background-color: #00C4DF;
+    border: 1px solid #00E5FF;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 800;
+    min-height: 38px;
+}
+QPushButton#startCyan:hover {
+    background-color: #26E0FA;
+    border-color: #7CEBFF;
+}
+QPushButton#startCyan:pressed {
+    background-color: #00A6BE;
+}
+QPushButton#startCyan:disabled {
+    color: #475569;
+    background-color: #0F2237;
+    border-color: #1E3A5F;
+}
+QPushButton#danger {
+    color: #FCA5A5;
+    background-color: #241416;
+    border-color: #7F1D1D;
+}
+QPushButton#danger:hover {
+    background-color: #381A1D;
+    border-color: #DC2626;
+}
 QPushButton#modeSwitch {
     min-height: 34px;
     min-width: 155px;
     padding: 0 18px;
-    color: #d7bf79;
-    background-color: #202224;
-    border: 1px solid #725d1f;
+    color: #94A3B8;
+    background-color: #10192A;
+    border: 1px solid #1E293B;
     border-radius: 7px;
     font-weight: 700;
 }
 QPushButton#modeSwitch:hover {
-    color: #fff8df;
-    background-color: #2b2922;
-    border-color: #9c7b1e;
+    color: #F8FAFC;
+    background-color: #17253D;
+    border-color: #0284C7;
 }
 QPushButton#modeSwitch:checked {
-    color: #15130c;
-    background-color: #f5c542;
-    border-color: #ffd966;
+    color: #070B14;
+    background-color: #00D8F6;
+    border-color: #38BDF8;
     font-weight: 800;
 }
 QPushButton#modeSwitch:disabled {
-    color: #66645e;
-    background-color: #171819;
-    border-color: #343127;
+    color: #475569;
+    background-color: #0B1120;
+    border-color: #1E293B;
 }
 QLineEdit, QPlainTextEdit, QComboBox {
-    color: #f4f1e8;
-    selection-background-color: #8d6f18;
-    background-color: #151617;
-    border: 1px solid #3b3c3d;
-    border-radius: 5px;
-    padding: 6px 8px;
+    color: #F8FAFC;
+    selection-background-color: #0284C7;
+    background-color: #090F1D;
+    border: 1px solid #1E293B;
+    border-radius: 6px;
+    padding: 6px 10px;
 }
-QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border-color: #b58b18; }
+QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {
+    border-color: #00D8F6;
+}
+QPlainTextEdit#codeEditor {
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    background-color: #070B14;
+    border: 1.5px solid #00D8F6;
+    border-radius: 8px;
+    padding: 10px;
+}
+QPlainTextEdit#codeEditor:focus {
+    border: 1.5px solid #38E1FF;
+}
 QComboBox QAbstractItemView {
-    color: #f4f1e8;
-    background-color: #202224;
-    selection-background-color: #6f5717;
+    color: #F8FAFC;
+    background-color: #0F172A;
+    selection-background-color: #0284C7;
 }
 QProgressBar {
     min-height: 8px;
     max-height: 8px;
     color: transparent;
-    background-color: #101112;
-    border: 1px solid #343536;
+    background-color: #070B14;
+    border: 1px solid #1E293B;
     border-radius: 4px;
 }
 QProgressBar::chunk {
-    background-color: #f5c542;
+    background-color: #00D8F6;
     border-radius: 3px;
 }
 QTableWidget {
-    color: #e9e5d9;
-    background-color: #141516;
-    alternate-background-color: #18191a;
-    border: 1px solid #343536;
-    border-radius: 6px;
-    gridline-color: #292a2b;
-    selection-background-color: #39301d;
-    selection-color: #fff8df;
+    color: #F1F5F9;
+    background-color: #090F1D;
+    alternate-background-color: #0D1527;
+    border: 1px solid #1E293B;
+    border-radius: 8px;
+    gridline-color: #162238;
+    selection-background-color: #0E365E;
+    selection-color: #FFFFFF;
 }
 QHeaderView {
-    background-color: #222324;
+    background-color: #0F172A;
     border: none;
 }
 QHeaderView::section {
-    color: #d7bf79;
-    background-color: #222324;
+    color: #38BDF8;
+    background-color: #0F172A;
     border: none;
-    border-right: 1px solid #343536;
-    border-bottom: 1px solid #66531d;
+    border-right: 1px solid #1E293B;
+    border-bottom: 1px solid #0284C7;
     padding: 8px 6px;
     font-weight: 700;
 }
 QTableCornerButton::section {
-    background-color: #222324;
+    background-color: #0F172A;
     border: none;
 }
 QScrollBar:vertical {
-    background-color: #141516;
-    width: 12px;
+    background-color: #070B14;
+    width: 10px;
     margin: 0px;
     border: none;
 }
 QScrollBar::handle:vertical {
-    background-color: #333537;
+    background-color: #1E293B;
     min-height: 24px;
-    border-radius: 6px;
+    border-radius: 5px;
     margin: 2px;
 }
 QScrollBar::handle:vertical:hover {
-    background-color: #55575a;
+    background-color: #334155;
 }
 QScrollBar:horizontal {
-    background-color: #141516;
-    height: 12px;
+    background-color: #070B14;
+    height: 10px;
     margin: 0px;
     border: none;
 }
 QScrollBar::handle:horizontal {
-    background-color: #333537;
+    background-color: #1E293B;
     min-width: 24px;
-    border-radius: 6px;
+    border-radius: 5px;
     margin: 2px;
 }
 QScrollBar::handle:horizontal:hover {
-    background-color: #55575a;
+    background-color: #334155;
 }
 QScrollBar::add-line, QScrollBar::sub-line {
     width: 0px;
@@ -512,24 +583,46 @@ QScrollBar::add-line, QScrollBar::sub-line {
     border: none;
     background: none;
 }
-QCheckBox { spacing: 7px; color: #bebbb1; }
+QCheckBox { spacing: 7px; color: #CBD5E1; }
 QCheckBox::indicator {
     width: 15px; height: 15px;
-    background-color: #151617;
-    border: 1px solid #5a574d;
+    background-color: #090F1D;
+    border: 1px solid #334155;
     border-radius: 3px;
 }
-QCheckBox::indicator:checked { background-color: #f5c542; border-color: #f5c542; }
+QCheckBox::indicator:hover { border-color: #00D8F6; }
+QCheckBox::indicator:checked { background-color: #00D8F6; border-color: #00D8F6; }
 QStatusBar {
-    color: #aaa79f;
-    background-color: #171819;
-    border-top: 1px solid #2f3031;
+    color: #94A3B8;
+    background-color: #0B1120;
+    border-top: 1px solid #1E293B;
 }
 QToolTip {
-    color: #f5f1e6;
-    background-color: #292a2b;
-    border: 1px solid #786322;
+    color: #F8FAFC;
+    background-color: #0F172A;
+    border: 1px solid #0284C7;
+    padding: 6px 10px;
+    border-radius: 5px;
+}
+QMenu {
+    background-color: #0F172A;
+    border: 1px solid #1E293B;
+    border-radius: 8px;
     padding: 4px;
+}
+QMenu::item {
+    padding: 6px 24px 6px 12px;
+    border-radius: 4px;
+    color: #F1F5F9;
+}
+QMenu::item:selected {
+    background-color: #0284C7;
+    color: #FFFFFF;
+}
+QMenu::separator {
+    height: 1px;
+    background-color: #1E293B;
+    margin: 4px 6px;
 }
 """
 
@@ -996,6 +1089,91 @@ class FetchTask(QRunnable):
             self.signals.completed.emit(self.run_id, self.account.email, result)
 
 
+class HotmailTaskSignals(QObject):
+    completed = Signal(int, int, str, object)  # run_id, row_index, email, result
+
+
+class HotmailFetchTask(QRunnable):
+    """Worker task for fetching verification codes from a Hotmail/Outlook account."""
+
+    def __init__(
+        self,
+        run_id: int,
+        row_index: int,
+        raw_line: str,
+        max_age_hours: int,
+        cancel_event: threading.Event,
+        msal_token_func=None,
+    ) -> None:
+        super().__init__()
+        self.run_id = run_id
+        self.row_index = row_index
+        self.raw_line = raw_line.strip()
+        self.max_age_hours = max_age_hours
+        self.cancel_event = cancel_event
+        self.msal_token_func = msal_token_func
+        self.signals = HotmailTaskSignals()
+
+    @Slot()
+    def run(self) -> None:
+        if self.cancel_event.is_set():
+            return
+        parts = [p.strip() for p in self.raw_line.split("|")]
+        email_addr = parts[0] if parts else ""
+        password = parts[1] if len(parts) > 1 else ""
+        refresh_token = parts[2] if len(parts) > 2 else ""
+        client_id = parts[3] if len(parts) > 3 else ""
+
+        if len(parts) == 2 and len(parts[1]) > 40:
+            refresh_token = parts[1]
+            password = ""
+
+        if not email_addr or "@" not in email_addr:
+            if not self.cancel_event.is_set():
+                self.signals.completed.emit(
+                    self.run_id,
+                    self.row_index,
+                    email_addr,
+                    FetchResult("auth_error", detail="Invalid email format."),
+                )
+            return
+
+        def token_provider(acct: Account) -> Optional[str]:
+            if refresh_token:
+                tok, _err = get_access_token_from_refresh_token(refresh_token, client_id)
+                if tok:
+                    return tok
+            if self.msal_token_func is not None:
+                try:
+                    return self.msal_token_func(acct)
+                except Exception:
+                    pass
+            return None
+
+        account = Account(
+            email=email_addr,
+            password=password,
+            provider="microsoft",
+        )
+
+        try:
+            result = fetch_latest_code(
+                account,
+                max_messages=0,
+                max_age_hours=self.max_age_hours,
+                timeout=20,
+                access_token_provider=token_provider,
+            )
+        except Exception as e:
+            result = FetchResult(
+                status="connection_error",
+                detail=f"Connection error: {str(e)}",
+            )
+
+        if not self.cancel_event.is_set():
+            self.signals.completed.emit(self.run_id, self.row_index, email_addr, result)
+
+
 class DeleteAllMailTask(QRunnable):
     def __init__(
         self,
@@ -1280,6 +1458,7 @@ class MainWindow(QMainWindow):
         self._current_view = self.VIEW_YANDEX
         self._mail_view = self.VIEW_YANDEX
         self._totp_active_secret = ""
+        self._twofa_items: list[dict[str, str]] = []
         self.settings = load_settings(SETTINGS_FILE)
         self.microsoft_oauth: MicrosoftOAuthManager | None = None
         self._oauth_dialog: DeviceCodeDialog | None = None
@@ -1301,6 +1480,13 @@ class MainWindow(QMainWindow):
         self._delete_partials = 0
         self._delete_unknowns = 0
         self._recent_columns_initialized = False
+        self._hotmail_run_id = 0
+        self._hotmail_cancel_event = threading.Event()
+        self._hotmail_results: dict[int, FetchResult] = {}
+        self._hotmail_active = False
+        self._hotmail_total = 0
+        self._hotmail_completed = 0
+        self._hotmail_codes_found = 0
         self._build_ui()
         self._load_saved_accounts()
         QTimer.singleShot(2500, lambda: self._check_for_updates_interactive(manual=False))
@@ -1402,8 +1588,11 @@ class MainWindow(QMainWindow):
         body = QVBoxLayout(self.mail_page)
         body.setContentsMargins(18, 15, 18, 14)
         body.setSpacing(11)
-        self.page_stack.addWidget(self.mail_page)
-        outer.addWidget(self.page_stack, 1)
+
+        self.yandex_container = QWidget()
+        yandex_layout = QVBoxLayout(self.yandex_container)
+        yandex_layout.setContentsMargins(0, 0, 0, 0)
+        yandex_layout.setSpacing(11)
 
         metrics = QHBoxLayout()
         metrics.setSpacing(10)
@@ -1414,7 +1603,7 @@ class MainWindow(QMainWindow):
         metrics.addWidget(self.code_card)
         metrics.addWidget(self.checked_card)
         metrics.addStretch(1)
-        body.addLayout(metrics)
+        yandex_layout.addLayout(metrics)
 
         toolbar = QHBoxLayout()
         toolbar.setSpacing(7)
@@ -1464,7 +1653,7 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.fetch_selected_button)
         toolbar.addWidget(self.fetch_all_button)
         toolbar.addWidget(self.stop_button)
-        body.addLayout(toolbar)
+        yandex_layout.addLayout(toolbar)
 
         filter_row = QHBoxLayout()
         self.filter_edit = QLineEdit()
@@ -1484,7 +1673,7 @@ class MainWindow(QMainWindow):
         filter_row.addWidget(self.columns_in_button)
         self.copy_button = _button("Copy selected code")
         filter_row.addWidget(self.copy_button)
-        body.addLayout(filter_row)
+        yandex_layout.addLayout(filter_row)
 
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
@@ -1590,7 +1779,16 @@ class MainWindow(QMainWindow):
         self.content_splitter.setStretchFactor(0, 3)
         self.content_splitter.setStretchFactor(1, 2)
         self.content_splitter.setSizes([390, 230])
-        body.addWidget(self.content_splitter, 1)
+        yandex_layout.addWidget(self.content_splitter, 1)
+        body.addWidget(self.yandex_container, 1)
+
+        # ── Hotmail Container (Image 1 layout) ──
+        self.hotmail_container = self._build_hotmail_page()
+        body.addWidget(self.hotmail_container, 1)
+        self.hotmail_container.hide()
+
+        self.page_stack.addWidget(self.mail_page)
+        outer.addWidget(self.page_stack, 1)
 
         footer = QFrame()
         footer.setObjectName("appFooter")
@@ -1661,105 +1859,631 @@ class MainWindow(QMainWindow):
         self._switch_view(self.VIEW_YANDEX, announce=False)
         QTimer.singleShot(0, self._fit_columns)
 
-    def _build_twofa_page(self) -> QWidget:
-        """Build the local, memory-only authenticator code workspace."""
+    def _build_hotmail_page(self) -> QWidget:
+        """Build the dedicated Hotmail/Outlook OAuth token and code extraction workspace."""
         page = QWidget()
-        page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(24, 20, 24, 20)
-        page_layout.addStretch(1)
+        page.setObjectName("workspacePage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(18, 15, 18, 14)
+        layout.setSpacing(12)
 
-        card = QFrame()
-        card.setObjectName("twoFactorCard")
-        card.setMaximumWidth(680)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(28, 24, 28, 26)
-        card_layout.setSpacing(12)
+        # ── Top Card: Accounts Input & Actions (Matching Image 1) ──
+        top_card = QFrame()
+        top_card.setObjectName("sectionCard")
+        top_layout = QVBoxLayout(top_card)
+        top_layout.setContentsMargins(16, 14, 16, 14)
+        top_layout.setSpacing(10)
 
-        eyebrow = QLabel("LOCAL AUTHENTICATOR")
-        eyebrow.setObjectName("twoFactorEyebrow")
-        eyebrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(eyebrow)
+        # Badge and header row
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
+        self.hotmail_accounts_badge = QLabel("Accounts: 0/1000")
+        self.hotmail_accounts_badge.setObjectName("accountsPill")
+        header_row.addWidget(self.hotmail_accounts_badge)
 
-        title = QLabel("Get 2FA Code")
-        title.setObjectName("twoFactorTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(title)
+        input_hint = QLabel("Format: email|pass|refresh_token|client_id  (or email|pass|refresh_token)")
+        input_hint.setObjectName("muted")
+        header_row.addWidget(input_hint)
+        header_row.addStretch(1)
 
-        description = QLabel(
-            "Enter the Base32 secret from your authenticator setup. The code is "
-            "generated locally and the secret is never saved or sent anywhere."
-        )
-        description.setObjectName("muted")
-        description.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        description.setWordWrap(True)
-        card_layout.addWidget(description)
+        age_label = QLabel("Search:")
+        age_label.setObjectName("muted")
+        header_row.addWidget(age_label)
+        self.hotmail_age_combo = QComboBox()
+        self.hotmail_age_combo.addItem("last 1 hour", 1)
+        self.hotmail_age_combo.addItem("last 24 hours", 24)
+        self.hotmail_age_combo.addItem("last 3 days", 72)
+        self.hotmail_age_combo.addItem("all mail", 0)
+        header_row.addWidget(self.hotmail_age_combo)
+        top_layout.addLayout(header_row)
 
-        secret_label = QLabel("2FA secret key")
-        card_layout.addWidget(secret_label)
-        self.totp_secret_edit = QLineEdit()
-        self.totp_secret_edit.setEchoMode(QLineEdit.EchoMode.Normal)
-        self.totp_secret_edit.setPlaceholderText("Paste Base32 secret key")
-        self.totp_secret_edit.setClearButtonEnabled(True)
-        self.totp_secret_edit.setMaxLength(256)
-        self.totp_secret_edit.setToolTip(
-            "Spaces, hyphens, lowercase letters, and missing Base32 padding are accepted."
-        )
-        card_layout.addWidget(self.totp_secret_edit)
+        # Multi-line Text Area
+        self.hotmail_text_edit = QPlainTextEdit()
+        self.hotmail_text_edit.setObjectName("codeEditor")
+        self.hotmail_text_edit.setPlaceholderText("email|pass|refresh_token|client_id")
+        self.hotmail_text_edit.setMinimumHeight(130)
+        self.hotmail_text_edit.textChanged.connect(self._on_hotmail_text_changed)
+        top_layout.addWidget(self.hotmail_text_edit)
 
-        secret_options = QHBoxLayout()
-        self.totp_show_secret = QCheckBox("Show secret")
-        self.totp_show_secret.toggled.connect(
-            lambda checked: self.totp_secret_edit.setEchoMode(
-                QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+        # Start button (Big Cyan Button from Image 1) and utility buttons
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
+        self.hotmail_start_button = QPushButton("Start")
+        self.hotmail_start_button.setObjectName("startCyan")
+        self.hotmail_start_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.hotmail_start_button.clicked.connect(self._start_hotmail_fetch)
+        action_row.addWidget(self.hotmail_start_button, 1)
+
+        self.hotmail_stop_button = _button("Stop", "danger")
+        self.hotmail_stop_button.setEnabled(False)
+        self.hotmail_stop_button.clicked.connect(self._stop_hotmail_fetch)
+        action_row.addWidget(self.hotmail_stop_button)
+
+        self.hotmail_clear_button = _button("Clear")
+        self.hotmail_clear_button.clicked.connect(self._clear_hotmail_input)
+        action_row.addWidget(self.hotmail_clear_button)
+
+        self.hotmail_import_button = _button("Import .txt")
+        self.hotmail_import_button.clicked.connect(self._import_hotmail_file)
+        action_row.addWidget(self.hotmail_import_button)
+
+        self.hotmail_export_button = _button("Export results")
+        self.hotmail_export_button.clicked.connect(self._export_hotmail_results)
+        action_row.addWidget(self.hotmail_export_button)
+
+        top_layout.addLayout(action_row)
+        layout.addWidget(top_card)
+
+        # ── Bottom Card: Check Results (Matching Image 1) ──
+        results_card = QFrame()
+        results_card.setObjectName("sectionCard")
+        results_layout = QVBoxLayout(results_card)
+        results_layout.setContentsMargins(16, 14, 16, 14)
+        results_layout.setSpacing(10)
+
+        # Results header
+        results_header = QHBoxLayout()
+        results_header.setSpacing(10)
+        results_title = QLabel("Check Results")
+        results_title.setObjectName("sectionTitle")
+        results_header.addWidget(results_title)
+
+        self.hotmail_results_stats = QLabel("Total: 0 | Codes: 0 | Checked: 0")
+        self.hotmail_results_stats.setObjectName("muted")
+        results_header.addWidget(self.hotmail_results_stats)
+        results_header.addStretch(1)
+
+        self.hotmail_copy_all_codes_button = _button("Copy all codes")
+        self.hotmail_copy_all_codes_button.clicked.connect(self._copy_all_hotmail_codes)
+        results_header.addWidget(self.hotmail_copy_all_codes_button)
+
+        self.hotmail_filter_edit = QLineEdit()
+        self.hotmail_filter_edit.setPlaceholderText("Filter results (email, code, sender, subject)...")
+        self.hotmail_filter_edit.setMinimumWidth(260)
+        self.hotmail_filter_edit.textChanged.connect(self._filter_hotmail_results)
+        results_header.addWidget(self.hotmail_filter_edit)
+        results_layout.addLayout(results_header)
+
+        # Results Table
+        self.hotmail_results_table = QTableWidget(0, 8)
+        self.hotmail_results_table.setHorizontalHeaderLabels([
+            "#",
+            "ACCOUNT / EMAIL",
+            "STATUS",
+            "CODE",
+            "SUBJECT",
+            "SENDER",
+            "RECEIVED",
+            "ACTION",
+        ])
+        self.hotmail_results_table.setAlternatingRowColors(True)
+        self.hotmail_results_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.hotmail_results_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.hotmail_results_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.hotmail_results_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.hotmail_results_table.verticalHeader().setVisible(False)
+        self.hotmail_results_table.verticalHeader().setDefaultSectionSize(38)
+        self.hotmail_results_table.horizontalHeader().setStretchLastSection(False)
+        self.hotmail_results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.hotmail_results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.hotmail_results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.hotmail_results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.hotmail_results_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.hotmail_results_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.hotmail_results_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        self.hotmail_results_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+
+        self.hotmail_results_table.cellDoubleClicked.connect(self._on_hotmail_table_double_clicked)
+        self.hotmail_results_table.customContextMenuRequested.connect(self._show_hotmail_context_menu)
+        results_layout.addWidget(self.hotmail_results_table, 1)
+
+        layout.addWidget(results_card, 1)
+        return page
+
+    def _on_hotmail_text_changed(self) -> None:
+        raw_text = self.hotmail_text_edit.toPlainText()
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        self.hotmail_accounts_badge.setText(f"Accounts: {len(lines)}/1000")
+
+    def _start_hotmail_fetch(self) -> None:
+        if self._hotmail_active:
+            return
+        raw_text = self.hotmail_text_edit.toPlainText()
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        if not lines:
+            QMessageBox.information(
+                self,
+                "No Accounts",
+                "Please enter at least one Hotmail/Outlook account in the box.\nFormat: email|pass|refresh_token|client_id",
             )
+            return
+
+        self._hotmail_run_id += 1
+        self._hotmail_cancel_event = threading.Event()
+        self._hotmail_active = True
+        self._hotmail_total = len(lines)
+        self._hotmail_completed = 0
+        self._hotmail_codes_found = 0
+        self._hotmail_results.clear()
+
+        self.hotmail_start_button.setEnabled(False)
+        self.hotmail_stop_button.setEnabled(True)
+        self.hotmail_clear_button.setEnabled(False)
+        self.hotmail_import_button.setEnabled(False)
+
+        self.hotmail_results_table.setRowCount(len(lines))
+        self.hotmail_results_stats.setText(f"Total: {self._hotmail_total} | Codes: 0 | Checked: 0/{self._hotmail_total}")
+
+        max_age_hours = int(self.hotmail_age_combo.currentData())
+
+        for idx, line in enumerate(lines):
+            parts = [p.strip() for p in line.split("|")]
+            email_addr = parts[0] if parts else f"Account #{idx+1}"
+
+            self._set_hotmail_table_row(
+                idx,
+                row_number=idx + 1,
+                email=email_addr,
+                status="Waiting...",
+                status_color="#94A3B8",
+                code="—",
+                code_color="#94A3B8",
+                subject="—",
+                sender="—",
+                received="—",
+            )
+
+            task = HotmailFetchTask(
+                run_id=self._hotmail_run_id,
+                row_index=idx,
+                raw_line=line,
+                max_age_hours=max_age_hours,
+                cancel_event=self._hotmail_cancel_event,
+                msal_token_func=self._token_for_account,
+            )
+            task.signals.completed.connect(self._on_hotmail_task_completed)
+            self.thread_pool.start(task)
+
+        self.statusBar().showMessage(f"Checking {len(lines)} Hotmail account(s)...")
+
+    def _set_hotmail_table_row(
+        self,
+        row: int,
+        row_number: int,
+        email: str,
+        status: str,
+        status_color: str,
+        code: str,
+        code_color: str,
+        subject: str,
+        sender: str,
+        received: str,
+        detail: str = "",
+    ) -> None:
+        idx_item = QTableWidgetItem(str(row_number))
+        idx_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        idx_item.setForeground(QColor("#64748B"))
+        self.hotmail_results_table.setItem(row, 0, idx_item)
+
+        email_item = QTableWidgetItem(email)
+        email_item.setForeground(QColor("#F1F5F9"))
+        self.hotmail_results_table.setItem(row, 1, email_item)
+
+        status_item = QTableWidgetItem(status)
+        status_item.setForeground(QColor(status_color))
+        status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        if detail:
+            status_item.setToolTip(detail)
+        self.hotmail_results_table.setItem(row, 2, status_item)
+
+        code_item = QTableWidgetItem(code)
+        code_font = QFont("Consolas", 11, QFont.Weight.Bold)
+        code_item.setFont(code_font)
+        code_item.setForeground(QColor(code_color))
+        code_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        if code and code != "—":
+            code_item.setToolTip(f"Code: {code} (Double-click to copy)")
+        self.hotmail_results_table.setItem(row, 3, code_item)
+
+        subj_item = QTableWidgetItem(subject)
+        subj_item.setForeground(QColor("#CBD5E1"))
+        self.hotmail_results_table.setItem(row, 4, subj_item)
+
+        sender_item = QTableWidgetItem(sender)
+        sender_item.setForeground(QColor("#94A3B8"))
+        self.hotmail_results_table.setItem(row, 5, sender_item)
+
+        rec_item = QTableWidgetItem(received)
+        rec_item.setForeground(QColor("#94A3B8"))
+        self.hotmail_results_table.setItem(row, 6, rec_item)
+
+        if code and code != "—":
+            copy_btn = _button("Copy", "primary")
+            copy_btn.setMaximumHeight(26)
+            copy_btn.clicked.connect(lambda _, c=code: self._copy_single_hotmail_code(c))
+            self.hotmail_results_table.setCellWidget(row, 7, copy_btn)
+        else:
+            action_item = QTableWidgetItem("—")
+            action_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            action_item.setForeground(QColor("#64748B"))
+            self.hotmail_results_table.setItem(row, 7, action_item)
+
+    @Slot(int, int, str, object)
+    def _on_hotmail_task_completed(self, run_id: int, row_index: int, email: str, result: FetchResult) -> None:
+        if run_id != self._hotmail_run_id or not self._hotmail_active:
+            return
+
+        self._hotmail_results[row_index] = result
+        self._hotmail_completed += 1
+
+        status = getattr(result, "status", "connection_error")
+        code = getattr(result, "code", "") or "—"
+        subject = getattr(result, "subject", "") or "—"
+        sender = getattr(result, "sender", "") or "—"
+        received = getattr(result, "received", "") or "—"
+        detail = getattr(result, "detail", "") or ""
+
+        status_colors = {
+            "found": "#10B981",
+            "not_found": "#F59E0B",
+            "auth_error": "#EF4444",
+            "connection_error": "#EF4444",
+            "oauth_required": "#38BDF8",
+            "unsupported_provider": "#EF4444",
+        }
+        status_labels = {
+            "found": "Code Found",
+            "not_found": "No Recent Code",
+            "auth_error": "Auth Failed",
+            "connection_error": "Connection Error",
+            "oauth_required": "Token Required",
+            "unsupported_provider": "Invalid Provider",
+        }
+
+        status_label = status_labels.get(status, status.replace("_", " ").title())
+        status_color = status_colors.get(status, "#94A3B8")
+        code_color = "#00E5FF" if (code and code != "—") else "#94A3B8"
+
+        if status == "found":
+            self._hotmail_codes_found += 1
+
+        self._set_hotmail_table_row(
+            row_index,
+            row_number=row_index + 1,
+            email=email,
+            status=status_label,
+            status_color=status_color,
+            code=code,
+            code_color=code_color,
+            subject=subject,
+            sender=sender,
+            received=received,
+            detail=detail,
         )
-        self.totp_show_secret.setChecked(True)
-        secret_options.addWidget(self.totp_show_secret)
-        secret_options.addStretch(1)
-        self.totp_clear_button = _button("Clear")
-        secret_options.addWidget(self.totp_clear_button)
-        self.totp_generate_button = _button("Generate code", "primary")
-        secret_options.addWidget(self.totp_generate_button)
-        card_layout.addLayout(secret_options)
 
-        self.totp_error_label = QLabel("")
-        self.totp_error_label.setObjectName("twoFactorError")
-        self.totp_error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.totp_error_label.setWordWrap(True)
-        self.totp_error_label.setVisible(False)
-        card_layout.addWidget(self.totp_error_label)
+        self.hotmail_results_stats.setText(
+            f"Total: {self._hotmail_total} | Codes: {self._hotmail_codes_found} | Checked: {self._hotmail_completed}/{self._hotmail_total}"
+        )
 
+        if self._hotmail_completed >= self._hotmail_total:
+            self._hotmail_active = False
+            self.hotmail_start_button.setEnabled(True)
+            self.hotmail_stop_button.setEnabled(False)
+            self.hotmail_clear_button.setEnabled(True)
+            self.hotmail_import_button.setEnabled(True)
+            self.statusBar().showMessage(
+                f"Hotmail check finished. {self._hotmail_codes_found} code(s) found across {self._hotmail_total} accounts.",
+                8000,
+            )
+
+    def _stop_hotmail_fetch(self) -> None:
+        if not self._hotmail_active:
+            return
+        self._hotmail_cancel_event.set()
+        self._hotmail_active = False
+        self.hotmail_start_button.setEnabled(True)
+        self.hotmail_stop_button.setEnabled(False)
+        self.hotmail_clear_button.setEnabled(True)
+        self.hotmail_import_button.setEnabled(True)
+        self.statusBar().showMessage("Hotmail check stopped by user.", 5000)
+
+    def _clear_hotmail_input(self) -> None:
+        self.hotmail_text_edit.clear()
+        self.hotmail_results_table.setRowCount(0)
+        self.hotmail_results_stats.setText("Total: 0 | Codes: 0 | Checked: 0")
+        self.hotmail_accounts_badge.setText("Accounts: 0/1000")
+
+    def _import_hotmail_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Hotmail Accounts",
+            "",
+            "Text Files (*.txt);;All Files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            content = Path(path).read_text(encoding="utf-8", errors="ignore")
+            self.hotmail_text_edit.setPlainText(content)
+            self.statusBar().showMessage(f"Imported {path}", 4000)
+        except Exception as e:
+            QMessageBox.warning(self, "Import Error", f"Could not read file: {e}")
+
+    def _export_hotmail_results(self) -> None:
+        if self.hotmail_results_table.rowCount() == 0:
+            QMessageBox.information(self, "Export Results", "No results to export.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Results",
+            "hotmail_results.txt",
+            "Text Files (*.txt);;All Files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            lines = []
+            for row in range(self.hotmail_results_table.rowCount()):
+                email_item = self.hotmail_results_table.item(row, 1)
+                status_item = self.hotmail_results_table.item(row, 2)
+                code_item = self.hotmail_results_table.item(row, 3)
+                subj_item = self.hotmail_results_table.item(row, 4)
+
+                email = email_item.text() if email_item else ""
+                status = status_item.text() if status_item else ""
+                code = code_item.text() if code_item else ""
+                subj = subj_item.text() if subj_item else ""
+                lines.append(f"{email}|{code}|{status}|{subj}")
+
+            Path(path).write_text("\n".join(lines), encoding="utf-8")
+            self.statusBar().showMessage(f"Exported {len(lines)} results to {path}", 5000)
+        except Exception as e:
+            QMessageBox.warning(self, "Export Error", f"Could not save file: {e}")
+
+    def _copy_single_hotmail_code(self, code: str) -> None:
+        if code and code != "—":
+            QGuiApplication.clipboard().setText(code)
+            self.statusBar().showMessage(f"Copied code {code} to clipboard.", 3000)
+
+    def _copy_all_hotmail_codes(self) -> None:
+        codes = []
+        for row in range(self.hotmail_results_table.rowCount()):
+            code_item = self.hotmail_results_table.item(row, 3)
+            if code_item:
+                c = code_item.text().strip()
+                if c and c != "—":
+                    codes.append(c)
+        if not codes:
+            self.statusBar().showMessage("No codes found to copy.", 3000)
+            return
+        QGuiApplication.clipboard().setText("\n".join(codes))
+        self.statusBar().showMessage(f"Copied {len(codes)} code(s) to clipboard.", 4000)
+
+    def _filter_hotmail_results(self, text: str) -> None:
+        query = text.strip().casefold()
+        for row in range(self.hotmail_results_table.rowCount()):
+            if not query:
+                self.hotmail_results_table.setRowHidden(row, False)
+                continue
+            match = False
+            for col in range(self.hotmail_results_table.columnCount()):
+                item = self.hotmail_results_table.item(row, col)
+                if item and query in item.text().casefold():
+                    match = True
+                    break
+            self.hotmail_results_table.setRowHidden(row, not match)
+
+    def _on_hotmail_table_double_clicked(self, row: int, col: int) -> None:
+        item = self.hotmail_results_table.item(row, col)
+        if not item:
+            return
+        text = item.text().strip()
+        if text and text != "—":
+            QGuiApplication.clipboard().setText(text)
+            self.statusBar().showMessage(f"Copied '{text}' to clipboard.", 3000)
+
+    def _show_hotmail_context_menu(self, pos: QPoint) -> None:
+        item = self.hotmail_results_table.itemAt(pos)
+        if not item:
+            return
+        row = item.row()
+        menu = QMenu(self)
+
+        code_item = self.hotmail_results_table.item(row, 3)
+        code = code_item.text() if code_item else ""
+        if code and code != "—":
+            act_code = menu.addAction(f"Copy Code ({code})")
+            act_code.triggered.connect(lambda: self._copy_single_hotmail_code(code))
+
+        email_item = self.hotmail_results_table.item(row, 1)
+        email = email_item.text() if email_item else ""
+        if email:
+            act_email = menu.addAction(f"Copy Email ({email})")
+            act_email.triggered.connect(lambda: QGuiApplication.clipboard().setText(email))
+
+        menu.addSeparator()
+        act_copy_all = menu.addAction("Copy All Found Codes")
+        act_copy_all.triggered.connect(self._copy_all_hotmail_codes)
+
+        act_export = menu.addAction("Export Results...")
+        act_export.triggered.connect(self._export_hotmail_results)
+
+        menu.exec(self.hotmail_results_table.viewport().mapToGlobal(pos))
+
+    def _build_twofa_page(self) -> QWidget:
+        """Build the dedicated 2FA authenticator workspace matching user screenshot."""
+        page = QWidget()
+        page.setObjectName("workspacePage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(18, 15, 18, 14)
+        layout.setSpacing(12)
+
+        # ── Top Card: Accounts: 0/1000, 2fa Key editor & Full-width Start button ──
+        top_card = QFrame()
+        top_card.setObjectName("sectionCard")
+        top_layout = QVBoxLayout(top_card)
+        top_layout.setContentsMargins(16, 14, 16, 14)
+        top_layout.setSpacing(10)
+
+        # Header Row: Accounts: 0/1000 badge
+        header_row = QHBoxLayout()
+        self.twofa_accounts_badge = QLabel("Accounts: 0/1000")
+        self.twofa_accounts_badge.setObjectName("accountsPill")
+        self.twofa_keys_badge = self.twofa_accounts_badge
+        header_row.addWidget(self.twofa_accounts_badge)
+        header_row.addStretch(1)
+        top_layout.addLayout(header_row)
+
+        # Zero-height totp_secret_edit for Ctrl+F and test compatibility
+        self.totp_secret_edit = QLineEdit()
+        self.totp_secret_edit.setMaximumHeight(0)
+        self.totp_secret_edit.setStyleSheet("max-height: 0px; border: none; margin: 0; padding: 0;")
+        top_layout.addWidget(self.totp_secret_edit)
+
+        # Multi-line Text Area with "2fa Key" placeholder
+        self.twofa_text_edit = QPlainTextEdit()
+        self.twofa_text_edit.setObjectName("codeEditor")
+        self.twofa_text_edit.setPlaceholderText("2fa Key")
+        self.twofa_text_edit.setMinimumHeight(130)
+        self.twofa_text_edit.textChanged.connect(self._on_twofa_text_changed)
+        top_layout.addWidget(self.twofa_text_edit)
+
+        # 100% Full-Width Start Button
+        self.totp_generate_button = QPushButton("Start")
+        self.totp_generate_button.setObjectName("startCyan")
+        self.totp_generate_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.totp_generate_button.clicked.connect(self._generate_totp_code)
+        top_layout.addWidget(self.totp_generate_button)
+
+        layout.addWidget(top_card)
+
+        # ── Bottom Card: KEY 2FA ──
+        results_card = QFrame()
+        results_card.setObjectName("sectionCard")
+        results_layout = QVBoxLayout(results_card)
+        results_layout.setContentsMargins(16, 14, 16, 14)
+        results_layout.setSpacing(10)
+
+        results_title = QLabel("KEY 2FA")
+        results_title.setObjectName("sectionTitle")
+        results_title.setStyleSheet("font-weight: 800; font-size: 13px; color: #F8FAFC;")
+        results_layout.addWidget(results_title)
+
+        self.twofa_empty_label = QLabel("Input KEY 2FA.")
+        self.twofa_empty_label.setObjectName("muted")
+        self.twofa_empty_label.setStyleSheet("color: #94A3B8; font-size: 12px;")
+        results_layout.addWidget(self.twofa_empty_label)
+
+        # Active container for generated codes/table
+        self.twofa_active_container = QWidget()
+        active_vbox = QVBoxLayout(self.twofa_active_container)
+        active_vbox.setContentsMargins(0, 4, 0, 0)
+        active_vbox.setSpacing(10)
+
+        # Live 2FA code banner
+        code_banner = QFrame()
+        code_banner.setObjectName("sectionCard")
+        code_banner_layout = QHBoxLayout(code_banner)
+        code_banner_layout.setContentsMargins(12, 6, 12, 6)
+        code_banner_layout.setSpacing(16)
+
+        code_vbox = QVBoxLayout()
+        code_vbox.setSpacing(1)
         self.totp_code_label = QLabel("——————")
         self.totp_code_label.setObjectName("twoFactorCode")
-        self.totp_code_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(self.totp_code_label)
+        code_vbox.addWidget(self.totp_code_label)
+        code_banner_layout.addLayout(code_vbox)
 
+        timer_vbox = QVBoxLayout()
+        timer_vbox.setSpacing(4)
         self.totp_countdown_label = QLabel("Generate a code to start the 30-second timer.")
         self.totp_countdown_label.setObjectName("muted")
-        self.totp_countdown_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(self.totp_countdown_label)
+        timer_vbox.addWidget(self.totp_countdown_label)
         self.totp_progress = QProgressBar()
         self.totp_progress.setRange(0, 30)
         self.totp_progress.setValue(0)
         self.totp_progress.setTextVisible(False)
-        card_layout.addWidget(self.totp_progress)
+        timer_vbox.addWidget(self.totp_progress)
+        self.totp_error_label = QLabel("")
+        self.totp_error_label.setObjectName("twoFactorError")
+        self.totp_error_label.setVisible(False)
+        timer_vbox.addWidget(self.totp_error_label)
+        code_banner_layout.addLayout(timer_vbox, 1)
 
-        copy_row = QHBoxLayout()
-        copy_row.addStretch(1)
-        self.totp_copy_button = _button("Copy 2FA code")
+        self.totp_copy_button = _button("Copy 2FA code", "primary")
         self.totp_copy_button.setEnabled(False)
-        copy_row.addWidget(self.totp_copy_button)
-        copy_row.addStretch(1)
-        card_layout.addLayout(copy_row)
+        self.totp_copy_button.clicked.connect(self._copy_totp_code)
+        code_banner_layout.addWidget(self.totp_copy_button)
+        active_vbox.addWidget(code_banner)
 
-        page_layout.addWidget(card, 0, Qt.AlignmentFlag.AlignHCenter)
-        page_layout.addStretch(1)
+        # Results Table for viewing multiple keys
+        self.twofa_results_table = QTableWidget(0, 6)
+        self.twofa_results_table.setHorizontalHeaderLabels([
+            "#",
+            "ACCOUNT / LABEL",
+            "2FA SECRET",
+            "CURRENT 2FA CODE",
+            "TIMER / EXPIRES",
+            "ACTION",
+        ])
+        self.twofa_results_table.setAlternatingRowColors(True)
+        self.twofa_results_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.twofa_results_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.twofa_results_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.twofa_results_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.twofa_results_table.verticalHeader().setVisible(False)
+        self.twofa_results_table.verticalHeader().setDefaultSectionSize(34)
+        self.twofa_results_table.horizontalHeader().setStretchLastSection(False)
+        self.twofa_results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.twofa_results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.twofa_results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.twofa_results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.twofa_results_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.twofa_results_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
 
-        self.totp_generate_button.clicked.connect(self._generate_totp_code)
+        self.twofa_results_table.cellClicked.connect(self._on_twofa_table_cell_clicked)
+        self.twofa_results_table.cellDoubleClicked.connect(self._on_twofa_table_double_clicked)
+        self.twofa_results_table.customContextMenuRequested.connect(self._show_twofa_context_menu)
+        active_vbox.addWidget(self.twofa_results_table, 1)
+
+        results_layout.addWidget(self.twofa_active_container, 1)
+        self.twofa_active_container.setVisible(False)
+
+        layout.addWidget(results_card, 1)
+
+        # Hidden controls for compatibility
+        self.totp_show_secret = QCheckBox("Show secret")
+        self.totp_show_secret.setChecked(True)
+        self.totp_show_secret.toggled.connect(self._on_twofa_show_secret_toggled)
+        self.totp_clear_button = QPushButton("Clear")
+        self.totp_clear_button.clicked.connect(self._clear_totp)
+        self.twofa_copy_all_button = QPushButton("Copy all codes")
+        self.twofa_copy_all_button.clicked.connect(self._copy_all_twofa_codes)
+        self.twofa_results_stats = QLabel("Total: 0 | Codes: 0 | Active: 0")
+
+        # Wire inputs & timer
         self.totp_secret_edit.returnPressed.connect(self._generate_totp_code)
         self.totp_secret_edit.textEdited.connect(self._totp_secret_was_edited)
-        self.totp_copy_button.clicked.connect(self._copy_totp_code)
-        self.totp_clear_button.clicked.connect(self._clear_totp)
         self.totp_timer = QTimer(self)
         self.totp_timer.setInterval(1000)
         self.totp_timer.timeout.connect(self._refresh_totp_code)
@@ -1770,11 +2494,11 @@ class MainWindow(QMainWindow):
         """Switch between provider mail workspaces and the local 2FA page."""
         if view not in self.view_buttons:
             return
-        if self._active:
+        if self._active or self._hotmail_active:
             self.view_buttons[self._current_view].setChecked(True)
             if announce:
                 self.statusBar().showMessage(
-                    "Stop or finish the current mail task before switching workspaces.",
+                    "Stop or finish the current task before switching workspaces.",
                     5000,
                 )
             return
@@ -1790,6 +2514,8 @@ class MainWindow(QMainWindow):
 
         self._mail_view = view
         self.page_stack.setCurrentWidget(self.mail_page)
+        self.yandex_container.setVisible(view == self.VIEW_YANDEX)
+        self.hotmail_container.setVisible(view == self.VIEW_MICROSOFT)
         self.table.clearSelection()
         self.recent_mail_table.clearSelection()
         self._apply_mail_view_controls()
@@ -1847,10 +2573,87 @@ class MainWindow(QMainWindow):
     def _accounts_for_current_mail_view(self) -> list[Account]:
         return [account for account in self.accounts if self._account_matches_mail_view(account)]
 
-    def _generate_totp_code(self) -> None:
-        secret = self.totp_secret_edit.text()
+    def _on_twofa_text_changed(self) -> None:
+        raw_text = self.twofa_text_edit.toPlainText()
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        self.twofa_accounts_badge.setText(f"Accounts: {len(lines)}/1000")
+        if lines:
+            first = lines[0]
+            parts = [p.strip() for p in first.split("|") if p.strip()]
+            first_secret = parts[-1] if len(parts) >= 2 else first
+            self.totp_secret_edit.blockSignals(True)
+            self.totp_secret_edit.setText(first_secret)
+            self.totp_secret_edit.blockSignals(False)
+
+            # Live update: automatically calculate & show 2FA code if key is valid Base32
+            try:
+                generate_totp(first_secret)
+                self._generate_totp_code(announce=False)
+            except InvalidTOTPSecret:
+                pass
+        else:
+            self.totp_secret_edit.blockSignals(True)
+            self.totp_secret_edit.clear()
+            self.totp_secret_edit.blockSignals(False)
+            self._clear_totp_display_only()
+
+    def _clear_totp_display_only(self) -> None:
+        self._totp_active_secret = ""
+        self._twofa_items.clear()
+        self.totp_code_label.setText("——————")
+        self.totp_countdown_label.setText("Generate a code to start the 30-second timer.")
+        self.totp_progress.setValue(0)
+        self.totp_error_label.clear()
+        self.totp_error_label.setVisible(False)
+        self.totp_copy_button.setEnabled(False)
+        self.twofa_results_table.setRowCount(0)
+        self.twofa_results_stats.setText("Total: 0 | Codes: 0 | Active: 0")
+        self.twofa_empty_label.setVisible(True)
+        self.twofa_active_container.setVisible(False)
+
+    def _on_twofa_show_secret_toggled(self, checked: bool) -> None:
+        self.totp_secret_edit.setEchoMode(
+            QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+        )
+        self._update_twofa_table_secrets_visibility(checked)
+
+    def _update_twofa_table_secrets_visibility(self, visible: bool) -> None:
+        for row in range(self.twofa_results_table.rowCount()):
+            if row < len(self._twofa_items):
+                secret = self._twofa_items[row]["secret"]
+                display = secret if visible else "•" * min(len(secret), 16)
+                item = self.twofa_results_table.item(row, 2)
+                if item:
+                    item.setText(display)
+                    item.setToolTip(secret if visible else "")
+
+    def _generate_totp_code(self, announce: bool = True) -> None:
+        text_content = self.twofa_text_edit.toPlainText().strip()
+        single_secret = self.totp_secret_edit.text().strip()
+
+        if not text_content and single_secret:
+            text_content = single_secret
+            self.twofa_text_edit.blockSignals(True)
+            self.twofa_text_edit.setPlainText(single_secret)
+            self.twofa_text_edit.blockSignals(False)
+        elif text_content and not single_secret:
+            lines = [l.strip() for l in text_content.splitlines() if l.strip()]
+            if lines:
+                parts = [p.strip() for p in lines[0].split("|") if p.strip()]
+                single_secret = parts[-1] if len(parts) >= 2 else lines[0]
+                self.totp_secret_edit.blockSignals(True)
+                self.totp_secret_edit.setText(single_secret)
+                self.totp_secret_edit.blockSignals(False)
+
+        primary_secret = single_secret
+        if not primary_secret and text_content:
+            lines = [l.strip() for l in text_content.splitlines() if l.strip()]
+            if lines:
+                parts = [p.strip() for p in lines[0].split("|") if p.strip()]
+                primary_secret = parts[-1] if len(parts) >= 2 else lines[0]
+
         try:
-            code = generate_totp(secret)
+            primary_code = generate_totp(primary_secret)
         except InvalidTOTPSecret:
             self._totp_active_secret = ""
             self.totp_code_label.setText("——————")
@@ -1861,18 +2664,134 @@ class MainWindow(QMainWindow):
             )
             self.totp_error_label.setVisible(True)
             self.totp_copy_button.setEnabled(False)
+            self.twofa_results_table.setRowCount(0)
+            self.twofa_results_stats.setText("Total: 0 | Codes: 0 | Active: 0")
+            self.twofa_empty_label.setVisible(False)
+            self.twofa_active_container.setVisible(True)
             return
 
-        self._totp_active_secret = secret
+        self._totp_active_secret = primary_secret
         self.totp_error_label.clear()
         self.totp_error_label.setVisible(False)
-        self.totp_code_label.setText(code)
+        self.totp_code_label.setText(primary_code)
         self.totp_copy_button.setEnabled(True)
-        self._refresh_totp_code()
-        self.statusBar().showMessage("2FA code generated locally.", 3000)
+        self.twofa_empty_label.setVisible(False)
+        self.twofa_active_container.setVisible(True)
 
-    def _totp_secret_was_edited(self, _text: str) -> None:
+        lines = [l.strip() for l in text_content.splitlines() if l.strip()]
+        if not lines and primary_secret:
+            lines = [primary_secret]
+
+        self._twofa_items = []
+        self.twofa_results_table.setRowCount(len(lines))
+        codes_count = 0
+        remaining = totp_seconds_remaining()
+
+        for idx, line in enumerate(lines):
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if len(parts) >= 2:
+                label = parts[0]
+                sec = parts[-1]
+            else:
+                label = f"Key #{idx + 1}"
+                sec = line
+
+            try:
+                c = generate_totp(sec)
+                codes_count += 1
+            except InvalidTOTPSecret:
+                c = "INVALID"
+
+            self._twofa_items.append({"label": label, "secret": sec, "code": c})
+            self._set_twofa_table_row(idx, idx + 1, label, sec, c, remaining)
+
+        self.twofa_results_stats.setText(
+            f"Total: {len(lines)} | Codes: {codes_count} | Active: {len(lines)}"
+        )
+        self.twofa_accounts_badge.setText(f"Accounts: {len(lines)}/1000")
+
+        self._refresh_totp_code()
+        if announce:
+            self.statusBar().showMessage(f"Generated 2FA codes for {len(lines)} key(s) locally.", 3000)
+
+    def _set_twofa_table_row(
+        self,
+        row: int,
+        row_number: int,
+        label: str,
+        secret: str,
+        code: str,
+        remaining: int,
+    ) -> None:
+        idx_item = QTableWidgetItem(str(row_number))
+        idx_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        idx_item.setForeground(QColor("#64748B"))
+        self.twofa_results_table.setItem(row, 0, idx_item)
+
+        label_item = QTableWidgetItem(label)
+        label_item.setForeground(QColor("#F1F5F9"))
+        self.twofa_results_table.setItem(row, 1, label_item)
+
+        show = self.totp_show_secret.isChecked()
+        display_sec = secret if show else "•" * min(len(secret), 16)
+        secret_item = QTableWidgetItem(display_sec)
+        secret_item.setFont(QFont("Consolas", 10))
+        secret_item.setForeground(QColor("#94A3B8"))
+        if show:
+            secret_item.setToolTip(secret)
+        self.twofa_results_table.setItem(row, 2, secret_item)
+
+        code_item = QTableWidgetItem(code)
+        code_font = QFont("Consolas", 12, QFont.Weight.Bold)
+        code_item.setFont(code_font)
+        code_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        code_item.setForeground(QColor("#00E5FF" if code != "INVALID" else "#EF4444"))
+        if code != "INVALID":
+            code_item.setToolTip(f"Code: {code} (Double-click to copy)")
+        self.twofa_results_table.setItem(row, 3, code_item)
+
+        timer_text = f"{remaining}s remaining" if code != "INVALID" else "Invalid key"
+        timer_item = QTableWidgetItem(timer_text)
+        timer_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        timer_item.setForeground(QColor("#38BDF8" if code != "INVALID" else "#EF4444"))
+        self.twofa_results_table.setItem(row, 4, timer_item)
+
+        if code != "INVALID":
+            copy_btn = _button("Copy", "primary")
+            copy_btn.setMaximumHeight(26)
+            copy_btn.clicked.connect(lambda _, c=code: self._copy_single_twofa_code(c))
+            self.twofa_results_table.setCellWidget(row, 5, copy_btn)
+        else:
+            dash_item = QTableWidgetItem("—")
+            dash_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            dash_item.setForeground(QColor("#64748B"))
+            self.twofa_results_table.setItem(row, 5, dash_item)
+
+    def _on_twofa_table_cell_clicked(self, row: int, _col: int) -> None:
+        if 0 <= row < len(self._twofa_items):
+            item = self._twofa_items[row]
+            sec = item["secret"]
+            try:
+                code = generate_totp(sec)
+                self._totp_active_secret = sec
+                self.totp_code_label.setText(code)
+                self.totp_copy_button.setEnabled(True)
+                self.totp_secret_edit.setText(sec)
+                remaining = totp_seconds_remaining()
+                self.totp_countdown_label.setText(f"New code in {remaining} second(s)")
+                self.totp_progress.setValue(remaining)
+                self.statusBar().showMessage(f"Selected {item['label']} ({code})", 2500)
+            except InvalidTOTPSecret:
+                pass
+
+    def _totp_secret_was_edited(self, text: str) -> None:
         """Prevent an edited field from displaying a code for the old secret."""
+        if not self.twofa_text_edit.toPlainText().strip() or "\n" not in self.twofa_text_edit.toPlainText().strip():
+            self.twofa_text_edit.blockSignals(True)
+            self.twofa_text_edit.setPlainText(text)
+            self.twofa_text_edit.blockSignals(False)
+        count = 1 if text.strip() else 0
+        self.twofa_accounts_badge.setText(f"Accounts: {count}/1000")
         if not self._totp_active_secret:
             return
         self._totp_active_secret = ""
@@ -1894,6 +2813,25 @@ class MainWindow(QMainWindow):
         self.totp_countdown_label.setText(f"New code in {remaining} second(s)")
         self.totp_progress.setValue(remaining)
 
+        # Also refresh active table rows
+        for row in range(self.twofa_results_table.rowCount()):
+            if row < len(self._twofa_items):
+                item_data = self._twofa_items[row]
+                sec = item_data["secret"]
+                try:
+                    c = generate_totp(sec)
+                except InvalidTOTPSecret:
+                    c = "INVALID"
+                item_data["code"] = c
+
+                code_item = self.twofa_results_table.item(row, 3)
+                if code_item:
+                    code_item.setText(c)
+
+                timer_item = self.twofa_results_table.item(row, 4)
+                if timer_item:
+                    timer_item.setText(f"{remaining}s remaining" if c != "INVALID" else "Invalid key")
+
     def _copy_totp_code(self) -> None:
         code = self.totp_code_label.text()
         if not (len(code) == 6 and code.isdigit()):
@@ -1901,9 +2839,129 @@ class MainWindow(QMainWindow):
         QGuiApplication.clipboard().setText(code)
         self.statusBar().showMessage(f"Copied 2FA code {code}.", 3000)
 
+    def _copy_single_twofa_code(self, code: str) -> None:
+        if code and code != "INVALID" and code != "—":
+            QGuiApplication.clipboard().setText(code)
+            self.statusBar().showMessage(f"Copied 2FA code {code} to clipboard.", 3000)
+
+    def _copy_all_twofa_codes(self) -> None:
+        codes = []
+        for row in range(self.twofa_results_table.rowCount()):
+            code_item = self.twofa_results_table.item(row, 3)
+            if code_item:
+                c = code_item.text().strip()
+                if c and c != "INVALID" and c != "—":
+                    codes.append(c)
+        if not codes:
+            self.statusBar().showMessage("No valid 2FA codes found to copy.", 3000)
+            return
+        QGuiApplication.clipboard().setText("\n".join(codes))
+        self.statusBar().showMessage(f"Copied {len(codes)} 2FA code(s) to clipboard.", 4000)
+
+    def _filter_twofa_results(self, text: str) -> None:
+        query = text.strip().casefold()
+        for row in range(self.twofa_results_table.rowCount()):
+            if not query:
+                self.twofa_results_table.setRowHidden(row, False)
+                continue
+            match = False
+            for col in range(self.twofa_results_table.columnCount()):
+                item = self.twofa_results_table.item(row, col)
+                if item and query in item.text().casefold():
+                    match = True
+                    break
+            self.twofa_results_table.setRowHidden(row, not match)
+
+    def _on_twofa_table_double_clicked(self, row: int, col: int) -> None:
+        item = self.twofa_results_table.item(row, col)
+        if not item:
+            return
+        text = item.text().strip()
+        if text and text != "—" and text != "INVALID":
+            QGuiApplication.clipboard().setText(text)
+            self.statusBar().showMessage(f"Copied '{text}' to clipboard.", 3000)
+
+    def _show_twofa_context_menu(self, pos: QPoint) -> None:
+        item = self.twofa_results_table.itemAt(pos)
+        if not item:
+            return
+        row = item.row()
+        menu = QMenu(self)
+
+        code_item = self.twofa_results_table.item(row, 3)
+        code = code_item.text() if code_item else ""
+        if code and code != "INVALID" and code != "—":
+            act_code = menu.addAction(f"Copy Code ({code})")
+            act_code.triggered.connect(lambda: self._copy_single_twofa_code(code))
+
+        label_item = self.twofa_results_table.item(row, 1)
+        label = label_item.text() if label_item else ""
+        if label:
+            act_label = menu.addAction(f"Copy Label ({label})")
+            act_label.triggered.connect(lambda: QGuiApplication.clipboard().setText(label))
+
+        if row < len(self._twofa_items):
+            sec = self._twofa_items[row]["secret"]
+            act_sec = menu.addAction("Copy 2FA Secret")
+            act_sec.triggered.connect(lambda: QGuiApplication.clipboard().setText(sec))
+
+        menu.addSeparator()
+        act_copy_all = menu.addAction("Copy All Active Codes")
+        act_copy_all.triggered.connect(self._copy_all_twofa_codes)
+
+        act_export = menu.addAction("Export Results...")
+        act_export.triggered.connect(self._export_twofa_results)
+
+        menu.exec(self.twofa_results_table.viewport().mapToGlobal(pos))
+
+    def _import_twofa_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import 2FA Keys",
+            "",
+            "Text Files (*.txt);;All Files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            content = Path(path).read_text(encoding="utf-8", errors="ignore")
+            self.twofa_text_edit.setPlainText(content)
+            self.statusBar().showMessage(f"Imported {path}", 4000)
+        except Exception as e:
+            QMessageBox.warning(self, "Import Error", f"Could not read file: {e}")
+
+    def _export_twofa_results(self) -> None:
+        if self.twofa_results_table.rowCount() == 0:
+            QMessageBox.information(self, "Export Results", "No results to export.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export 2FA Results",
+            "twofa_results.txt",
+            "Text Files (*.txt);;All Files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            lines = []
+            for row in range(self.twofa_results_table.rowCount()):
+                label_item = self.twofa_results_table.item(row, 1)
+                code_item = self.twofa_results_table.item(row, 3)
+                label = label_item.text() if label_item else ""
+                code = code_item.text() if code_item else ""
+                sec = self._twofa_items[row]["secret"] if row < len(self._twofa_items) else ""
+                lines.append(f"{label}|{sec}|{code}")
+
+            Path(path).write_text("\n".join(lines), encoding="utf-8")
+            self.statusBar().showMessage(f"Exported {len(lines)} 2FA results to {path}", 5000)
+        except Exception as e:
+            QMessageBox.warning(self, "Export Error", f"Could not save file: {e}")
+
     def _clear_totp(self) -> None:
         self._totp_active_secret = ""
+        self._twofa_items.clear()
         self.totp_secret_edit.clear()
+        self.twofa_text_edit.clear()
         self.totp_show_secret.setChecked(True)
         self.totp_code_label.setText("——————")
         self.totp_countdown_label.setText("Generate a code to start the 30-second timer.")
@@ -1911,6 +2969,11 @@ class MainWindow(QMainWindow):
         self.totp_error_label.clear()
         self.totp_error_label.setVisible(False)
         self.totp_copy_button.setEnabled(False)
+        self.twofa_accounts_badge.setText("Accounts: 0/1000")
+        self.twofa_results_table.setRowCount(0)
+        self.twofa_results_stats.setText("Total: 0 | Codes: 0 | Active: 0")
+        self.twofa_empty_label.setVisible(True)
+        self.twofa_active_container.setVisible(False)
         self.totp_secret_edit.setFocus()
 
     def _configure_oauth_manager(self) -> None:
@@ -3195,11 +4258,11 @@ class MainWindow(QMainWindow):
             self.update_check_button.setText("Checking...")
             self.statusBar().showMessage("Checking for updates online...", 3000)
 
-        task = UpdateCheckTask()
-        task.signals.found.connect(lambda update_info: self._on_update_found(update_info, manual))
-        task.signals.not_found.connect(lambda: self._on_update_not_found(manual))
-        task.signals.failed.connect(lambda err: self._on_update_failed(err, manual))
-        self.thread_pool.start(task)
+        self._update_task = UpdateCheckTask()
+        self._update_task.signals.found.connect(lambda update_info: self._on_update_found(update_info, manual))
+        self._update_task.signals.not_found.connect(lambda: self._on_update_not_found(manual))
+        self._update_task.signals.failed.connect(lambda err: self._on_update_failed(err, manual))
+        self.thread_pool.start(self._update_task)
 
     @Slot(object, bool)
     def _on_update_found(self, update_info: UpdateInfo, manual: bool) -> None:

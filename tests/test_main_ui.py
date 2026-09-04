@@ -403,6 +403,92 @@ class MainWindowTests(unittest.TestCase):
             window.totp_timer.stop()
             window.close()
 
+    def test_twofa_long_screen_multiline_generates_table_and_copies_all(self):
+        window = app_module.MainWindow()
+        try:
+            window._switch_view(window.VIEW_2FA, announce=False)
+            input_text = "AccountA|JBSWY3DPEHPK3PXP\nAccountB|JBSWY3DPEHPK3PXQ"
+            window.twofa_text_edit.setPlainText(input_text)
+            self.assertEqual(window.twofa_keys_badge.text(), "Accounts: 2/1000")
+
+            with (
+                patch.object(app_module, "generate_totp", side_effect=["111111", "111111", "222222", "111111", "111111", "222222"]),
+                patch.object(app_module, "totp_seconds_remaining", return_value=25),
+            ):
+                window.totp_generate_button.click()
+
+            self.assertEqual(window.twofa_results_table.rowCount(), 2)
+            self.assertEqual(window.twofa_results_table.item(0, 1).text(), "AccountA")
+            self.assertEqual(window.twofa_results_table.item(1, 1).text(), "AccountB")
+            self.assertEqual(window.twofa_results_table.item(0, 3).text(), "111111")
+            self.assertEqual(window.twofa_results_table.item(1, 3).text(), "222222")
+            self.assertIn("Total: 2 | Codes: 2", window.twofa_results_stats.text())
+
+            # Test Copy All
+            window._copy_all_twofa_codes()
+            self.assertEqual(self.app.clipboard().text(), "111111\n222222")
+
+            # Test toggling secret visibility in table
+            window.totp_show_secret.setChecked(False)
+            self.assertTrue(window.twofa_results_table.item(0, 2).text().startswith("•"))
+            window.totp_show_secret.setChecked(True)
+            self.assertEqual(window.twofa_results_table.item(0, 2).text(), "JBSWY3DPEHPK3PXP")
+        finally:
+            window.totp_timer.stop()
+            window.close()
+
+    def test_twofa_table_filter_and_row_selection(self):
+        window = app_module.MainWindow()
+        try:
+            window._switch_view(window.VIEW_2FA, announce=False)
+            window.twofa_text_edit.setPlainText("Alpha|JBSWY3DPEHPK3PXP\nBeta|JBSWY3DPEHPK3PXQ")
+            with patch.object(app_module, "generate_totp", return_value="654321"):
+                window.totp_generate_button.click()
+
+            self.assertEqual(window.twofa_results_table.rowCount(), 2)
+
+            # Test filter
+            window._filter_twofa_results("Beta")
+            self.assertTrue(window.twofa_results_table.isRowHidden(0))
+            self.assertFalse(window.twofa_results_table.isRowHidden(1))
+
+            window._filter_twofa_results("")
+            self.assertFalse(window.twofa_results_table.isRowHidden(0))
+            self.assertFalse(window.twofa_results_table.isRowHidden(1))
+
+            # Test clicking row 1 updates active code in banner
+            with patch.object(app_module, "generate_totp", return_value="999888"):
+                window._on_twofa_table_cell_clicked(1, 0)
+            self.assertEqual(window.totp_code_label.text(), "999888")
+        finally:
+            window.totp_timer.stop()
+            window.close()
+
+    def test_twofa_live_updates_on_typing_and_clearing(self):
+        window = app_module.MainWindow()
+        try:
+            window._switch_view(window.VIEW_2FA, announce=False)
+            self.assertFalse(window.twofa_empty_label.isHidden())
+            self.assertTrue(window.twofa_active_container.isHidden())
+
+            # Typing/pasting a valid key live-generates code immediately without clicking Start
+            with patch.object(app_module, "generate_totp", return_value="777888"):
+                window.twofa_text_edit.setPlainText("JBSWY3DPEHPK3PXP")
+
+            self.assertTrue(window.twofa_empty_label.isHidden())
+            self.assertFalse(window.twofa_active_container.isHidden())
+            self.assertEqual(window.totp_code_label.text(), "777888")
+            self.assertTrue(window.totp_copy_button.isEnabled())
+
+            # Clearing input resets smoothly to empty state
+            window.twofa_text_edit.clear()
+            self.assertFalse(window.twofa_empty_label.isHidden())
+            self.assertTrue(window.twofa_active_container.isHidden())
+            self.assertEqual(window.totp_code_label.text(), "——————")
+        finally:
+            window.totp_timer.stop()
+            window.close()
+
     def test_footer_credit_and_copyright_labels_are_exact(self):
         window = app_module.MainWindow()
         try:
@@ -1436,6 +1522,49 @@ class MainWindowTests(unittest.TestCase):
             window._rebuild_recent_mail()
             self.app.processEvents()
             self.assertEqual(mail_header.sectionSize(window.MAIL_COL_SUBJECT), 444)
+        finally:
+            window.close()
+
+    def test_hotmail_workspace_ui_and_functionality(self):
+        window = app_module.MainWindow()
+        try:
+            window._switch_view(window.VIEW_MICROSOFT, announce=False)
+            self.assertFalse(window.hotmail_container.isHidden())
+            self.assertTrue(window.yandex_container.isHidden())
+
+            # Test text edit dynamic badge count
+            self.assertEqual(window.hotmail_accounts_badge.text(), "Accounts: 0/1000")
+            window.hotmail_text_edit.setPlainText("user1@outlook.com|pass|token1|client1\nuser2@hotmail.com|pass|token2|client2")
+            self.assertEqual(window.hotmail_accounts_badge.text(), "Accounts: 2/1000")
+
+            # Test table population on completed task
+            result = FetchResult("found", code="654321", subject="Your security code", sender="Microsoft", received="12:00")
+            window._start_hotmail_fetch()
+            self.assertEqual(window.hotmail_results_table.rowCount(), 2)
+
+            window._on_hotmail_task_completed(window._hotmail_run_id, 0, "user1@outlook.com", result)
+            code_item = window.hotmail_results_table.item(0, 3)
+            self.assertIsNotNone(code_item)
+            self.assertEqual(code_item.text(), "654321")
+
+            # Test double click to copy
+            window._on_hotmail_table_double_clicked(0, 3)
+            self.assertEqual(self.app.clipboard().text(), "654321")
+
+            # Test copy all codes
+            window._copy_all_hotmail_codes()
+            self.assertEqual(self.app.clipboard().text(), "654321")
+
+            # Test filter
+            window._filter_hotmail_results("user1")
+            self.assertFalse(window.hotmail_results_table.isRowHidden(0))
+            self.assertTrue(window.hotmail_results_table.isRowHidden(1))
+
+            # Test clear
+            window._clear_hotmail_input()
+            self.assertEqual(window.hotmail_text_edit.toPlainText(), "")
+            self.assertEqual(window.hotmail_results_table.rowCount(), 0)
+            self.assertEqual(window.hotmail_accounts_badge.text(), "Accounts: 0/1000")
         finally:
             window.close()
 

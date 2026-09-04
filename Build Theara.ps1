@@ -66,10 +66,16 @@ try {
     }
     Compress-Archive -LiteralPath $BundleDirectory -DestinationPath $Archive -CompressionLevel Optimal
 
+    $ArchiveShort = Join-Path $ProjectRoot "dist\Theara.zip"
+    Copy-Item -LiteralPath $Archive -Destination $ArchiveShort -Force
+
+    Invoke-Python -Arguments @("tools\generate_release_manifest.py", "1.0.1")
+
     Write-Host ""
     Write-Host "Theara build completed successfully." -ForegroundColor Green
     Write-Host "Application: $Executable"
     Write-Host "Archive:     $Archive"
+    Write-Host "Archive 2:   $ArchiveShort"
 }
 finally {
     Pop-Location

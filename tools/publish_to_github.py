@@ -20,8 +20,8 @@ def load_github_config() -> dict[str, str]:
         except Exception:
             pass
     return {
-        "repo_owner": "sreng-source",
-        "repo_name": "Theara-Releases",
+        "repo_owner": "panhakoko221-stack",
+        "repo_name": "Panha-Tool",
         "github_token": os.environ.get("GITHUB_TOKEN", ""),
     }
 

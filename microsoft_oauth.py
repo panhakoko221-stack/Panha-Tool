@@ -299,4 +299,69 @@ class MicrosoftOAuthManager:
                 return False
 
 
-__all__ = ["MSAL_AVAILABLE", "OAuthError", "MicrosoftOAuthManager"]
+def get_access_token_from_refresh_token(
+    refresh_token: str,
+    client_id: str = "",
+    timeout: int = 15,
+) -> tuple[str, str]:
+    """Exchange a Microsoft OAuth2 refresh_token for an access_token.
+    Returns (access_token, error_message).
+    """
+    import urllib.parse
+    import urllib.request
+    import urllib.error
+
+    token = str(refresh_token or "").strip()
+    if not token:
+        return "", "Refresh token is empty."
+
+    cid = str(client_id or "").strip() or "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
+
+    endpoints = [
+        "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        "https://login.live.com/oauth20_token.srf",
+    ]
+
+    last_error = ""
+    for url in endpoints:
+        data = urllib.parse.urlencode({
+            "client_id": cid,
+            "grant_type": "refresh_token",
+            "refresh_token": token,
+            "scope": "https://outlook.office.com/IMAP.AccessAsUser.All offline_access",
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                res_json = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                access_token = res_json.get("access_token", "")
+                if access_token:
+                    return access_token, ""
+                last_error = str(res_json.get("error_description", res_json.get("error", "OAuth failed")))
+        except urllib.error.HTTPError as err:
+            try:
+                err_body = err.read().decode("utf-8", errors="ignore")
+                err_json = json.loads(err_body)
+                last_error = err_json.get("error_description", err_json.get("error", str(err)))
+            except Exception:
+                last_error = f"HTTP {err.code}: {err.reason}"
+        except Exception as err:
+            last_error = str(err)
+
+    return "", last_error or "Could not acquire access token from refresh token."
+
+
+__all__ = [
+    "MSAL_AVAILABLE",
+    "OAuthError",
+    "MicrosoftOAuthManager",
+    "get_access_token_from_refresh_token",
+]

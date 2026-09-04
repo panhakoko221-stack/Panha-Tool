@@ -236,6 +236,21 @@ class MicrosoftOAuthTests(unittest.TestCase):
         self.assertNotIn("person@hotmail.com", self.cache_path.read_text(encoding="utf-8"))
         self.assertFalse(manager.sign_out("missing@outlook.com"))
 
+    def test_get_access_token_from_refresh_token_empty(self) -> None:
+        token, error = oauth.get_access_token_from_refresh_token("")
+        self.assertEqual(token, "")
+        self.assertIn("empty", error.casefold())
+
+    def test_get_access_token_from_refresh_token_mocked(self) -> None:
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            import io
+            mock_resp = io.BytesIO(b'{"access_token": "mock_token_123", "expires_in": 3600}')
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+            token, error = oauth.get_access_token_from_refresh_token("valid_refresh_token", "my_client_id")
+            self.assertEqual(token, "mock_token_123")
+            self.assertEqual(error, "")
+
 
 if __name__ == "__main__":
     unittest.main()
