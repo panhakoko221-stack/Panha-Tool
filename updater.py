@@ -212,6 +212,14 @@ exit /b 0
     return script_path
 
 
+def get_installation_directory() -> Path:
+    """Return the base directory where the application / exe is installed."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    # When running from source/script (e.g. during development or test):
+    return Path(__file__).resolve().parent
+
+
 def apply_update_and_restart(
     zip_archive_path: Path,
     app_install_dir: Optional[Path] = None,
@@ -219,16 +227,13 @@ def apply_update_and_restart(
 ) -> bool:
     """Launch the detached updater script and terminate the running process."""
     try:
-        install_dir = app_install_dir or Path(sys.executable).resolve().parent
+        install_dir = app_install_dir or get_installation_directory()
         script_path = generate_updater_script(zip_archive_path, install_dir, executable_name)
 
-        DETACHED_PROCESS = 0x00000008
-        CREATE_NEW_PROCESS_GROUP = 0x00000200
-
+        # Launch CMD with a visible console or detached so user can see progress if desired
         subprocess.Popen(
-            ["cmd.exe", "/c", str(script_path)],
-            creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
-            close_fds=True,
+            ["cmd.exe", "/c", "start", "Theara Updater", "cmd.exe", "/c", str(script_path)],
+            shell=True,
         )
         return True
     except Exception:
