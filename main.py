@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 import threading
 
 from PySide6.QtCore import (
@@ -1358,11 +1359,11 @@ class DownloadProgressDialog(QDialog):
         self._start_download()
 
     def _start_download(self) -> None:
-        task = DownloadTask(self.update_info.download_url, self._target_zip)
-        task.signals.progress.connect(self._on_progress)
-        task.signals.completed.connect(self._on_completed)
-        task.signals.failed.connect(self._on_failed)
-        self.thread_pool.start(task)
+        self._download_task = DownloadTask(self.update_info.download_url, self._target_zip)
+        self._download_task.signals.progress.connect(self._on_progress)
+        self._download_task.signals.completed.connect(self._on_completed)
+        self._download_task.signals.failed.connect(self._on_failed)
+        self.thread_pool.start(self._download_task)
 
     @Slot(int, int, float)
     def _on_progress(self, downloaded: int, total: int, pct: float) -> None:
