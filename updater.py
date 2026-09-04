@@ -19,7 +19,7 @@ from typing import Callable, Optional
 import urllib.request
 import zipfile
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 DEFAULT_MANIFEST_URL = "https://raw.githubusercontent.com/panhakoko221-stack/Panha-Tool/main/dist/version.json"
 
 
@@ -195,16 +195,17 @@ if exist "{extract_staging_dir}\\main.dist" (
 xcopy "!SOURCE_DIR!\\*" "{app_install_dir}\\" /E /Y /Q /H /R >nul
 
 echo [Theara Updater] Replacing and refreshing desktop shortcut...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $d = $ws.SpecialFolders.Item('Desktop'); $s_path = Join-Path $d 'Theara.lnk'; if (Test-Path $s_path) {{ Remove-Item $s_path -Force }}; $s = $ws.CreateShortcut($s_path); $s.TargetPath = '{app_install_dir}\\{executable_name}'; $s.WorkingDirectory = '{app_install_dir}'; $s.IconLocation = '{app_install_dir}\\{executable_name},0'; $s.Description = 'Theara - Mail & 2FA Code Tool'; $s.Save()"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $d = [Environment]::GetFolderPath('Desktop'); $s_path = Join-Path $d 'Theara.lnk'; if (Test-Path $s_path) {{ Remove-Item -LiteralPath $s_path -Force }}; $s = $ws.CreateShortcut($s_path); $s.TargetPath = '{app_install_dir}\\{executable_name}'; $s.WorkingDirectory = '{app_install_dir}'; $s.IconLocation = '{app_install_dir}\\{executable_name},0'; $s.Description = 'Theara - Mail & 2FA Code Tool'; $s.Save()"
 
 echo [Theara Updater] Cleaning temporary files...
 rmdir /S /Q "{extract_staging_dir}" 2>nul
 del /F /Q "{zip_archive_path}" 2>nul
 
 echo [Theara Updater] Restarting Theara...
-start "" "{app_install_dir}\\{executable_name}"
+start "" /D "{app_install_dir}" "{app_install_dir}\\{executable_name}"
 
 echo [Theara Updater] Update completed successfully!
+timeout /t 2 /nobreak >nul
 (goto) 2>nul & del "%~f0"
 exit /b 0
 """
