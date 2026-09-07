@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QHeaderView
 
@@ -671,7 +671,7 @@ class MainWindowTests(unittest.TestCase):
         finally:
             window.close()
 
-    def test_delete_all_yandex_mail_requires_exact_confirmation(self):
+    def test_delete_all_yandex_mail_cancel_keeps_mail(self):
         window = app_module.MainWindow()
         try:
             account = Account("demo@yandex.com", "fake", "yandex")
@@ -681,11 +681,10 @@ class MainWindowTests(unittest.TestCase):
 
             with (
                 patch.object(
-                    app_module.QInputDialog,
-                    "getText",
-                    return_value=("DELETE", True),
+                    app_module.QMessageBox,
+                    "warning",
+                    return_value=app_module.QMessageBox.StandardButton.Cancel,
                 ) as confirmation,
-                patch.object(app_module.QMessageBox, "information") as information,
                 patch.object(window.thread_pool, "start") as start,
             ):
                 window._delete_all_yandex_mail_for_selection()
@@ -705,10 +704,105 @@ class MainWindowTests(unittest.TestCase):
             self.assertIn("custom folders", prompt)
             self.assertIn("cannot be restored", prompt)
             self.assertIn("alias preference is ignored", prompt)
-            self.assertIn("DELETE ALL MAIL", prompt)
-            information.assert_called_once()
+            self.assertIn("Click OK", prompt)
+            self.assertEqual(
+                confirmation.call_args.args[3],
+                app_module.QMessageBox.StandardButton.Ok
+                | app_module.QMessageBox.StandardButton.Cancel,
+            )
+            self.assertEqual(
+                confirmation.call_args.args[4],
+                app_module.QMessageBox.StandardButton.Cancel,
+            )
             start.assert_not_called()
             self.assertFalse(window._active)
+        finally:
+            window.close()
+
+    def test_delete_all_yandex_mail_uses_multiple_selected_accounts(self):
+        window = app_module.MainWindow()
+        try:
+            first = Account("first@yandex.com", "fake", "yandex")
+            second = Account("second@yandex.com", "fake", "yandex")
+            window.accounts = [first, second, Account("other@zoho.com", "fake", "zoho")]
+            window._rebuild_table()
+            flags = (
+                QItemSelectionModel.SelectionFlag.Select
+                | QItemSelectionModel.SelectionFlag.Rows
+            )
+            selection = window.table.selectionModel()
+            selection.select(window.table.model().index(0, 0), flags)
+            selection.select(window.table.model().index(1, 0), flags)
+
+            with (
+                patch.object(
+                    app_module.QMessageBox,
+                    "warning",
+                    return_value=app_module.QMessageBox.StandardButton.Ok,
+                ),
+                patch.object(window, "_start_delete_all_yandex_mail") as start,
+            ):
+                window._delete_all_yandex_mail_for_selection()
+
+            selected_accounts = start.call_args.args[0]
+            self.assertEqual(
+                [account.email for account in selected_accounts],
+                [first.email, second.email],
+            )
+        finally:
+            window.close()
+
+    def test_delete_all_yandex_mail_shows_live_multi_account_progress(self):
+        window = app_module.MainWindow()
+        try:
+            first = Account("first@yandex.com", "fake", "yandex")
+            second = Account("second@yandex.com", "fake", "yandex")
+            window.accounts = [first, second]
+            window._rebuild_table()
+
+            with patch.object(window.thread_pool, "start"):
+                window._start_delete_all_yandex_mail([first, second])
+
+            self.assertEqual(window.checked_card.value.text(), "0 / 2")
+            self.assertEqual(window.delete_all_yandex_button.text(), "Deleting 0 / 2...")
+            self.assertEqual(
+                window.table.item(0, window.COL_STATUS).text(),
+                "Waiting to delete...",
+            )
+            self.assertEqual(
+                window.table.item(1, window.COL_STATUS).text(),
+                "Waiting to delete...",
+            )
+
+            window._delete_all_yandex_mail_started(window._run_id, first.email)
+            self.assertEqual(window.delete_all_yandex_button.text(), "Deleting 1 / 2...")
+            self.assertEqual(
+                window.table.item(0, window.COL_STATUS).text(),
+                "Deleting all mail...",
+            )
+            self.assertIn(first.email, window.statusBar().currentMessage())
+
+            window._delete_all_yandex_mail_completed(
+                window._run_id,
+                first.email,
+                DeleteMailResult("deleted", deleted_count=2, folder_count=1),
+            )
+            self.assertEqual(window.checked_card.value.text(), "1 / 2")
+            self.assertIn("Completed 1 / 2", window.statusBar().currentMessage())
+
+            window._delete_all_yandex_mail_started(window._run_id, second.email)
+            self.assertEqual(window.delete_all_yandex_button.text(), "Deleting 2 / 2...")
+            window._delete_all_yandex_mail_completed(
+                window._run_id,
+                second.email,
+                DeleteMailResult("empty"),
+            )
+            self.assertFalse(window._active)
+            self.assertEqual(
+                window.delete_all_yandex_button.text(),
+                "Delete selected Yandex mail",
+            )
+            self.assertIn("Permanently deleted 2", window.statusBar().currentMessage())
         finally:
             window.close()
 
@@ -745,9 +839,9 @@ class MainWindowTests(unittest.TestCase):
             window.table.selectRow(0)
 
             with patch.object(
-                app_module.QInputDialog,
-                "getText",
-                return_value=("DELETE ALL MAIL", True),
+                app_module.QMessageBox,
+                "warning",
+                return_value=app_module.QMessageBox.StandardButton.Ok,
             ):
                 window._delete_all_yandex_mail_for_selection()
 
@@ -783,7 +877,7 @@ class MainWindowTests(unittest.TestCase):
                 app_module.Qt.CheckState.Checked,
             )
 
-            with patch.object(app_module.QInputDialog, "getText") as confirmation:
+            with patch.object(app_module.QMessageBox, "warning") as confirmation:
                 window._delete_all_yandex_mail_for_selection()
 
             confirmation.assert_not_called()
@@ -800,7 +894,7 @@ class MainWindowTests(unittest.TestCase):
             window.table.selectRow(0)
             window.table.setRowHidden(0, True)
 
-            with patch.object(app_module.QInputDialog, "getText") as confirmation:
+            with patch.object(app_module.QMessageBox, "warning") as confirmation:
                 window._delete_all_yandex_mail_for_selection()
 
             confirmation.assert_not_called()
@@ -833,9 +927,9 @@ class MainWindowTests(unittest.TestCase):
             window.table.selectRow(0)
 
             with patch.object(
-                app_module.QInputDialog,
-                "getText",
-                return_value=("DELETE ALL MAIL", True),
+                app_module.QMessageBox,
+                "warning",
+                return_value=app_module.QMessageBox.StandardButton.Ok,
             ):
                 window._delete_all_yandex_mail_for_selection()
 

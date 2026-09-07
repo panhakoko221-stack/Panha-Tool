@@ -19,7 +19,7 @@ from typing import Callable, Optional
 import urllib.request
 import zipfile
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 DEFAULT_MANIFEST_URL = "https://raw.githubusercontent.com/panhakoko221-stack/Panha-Tool/main/dist/version.json"
 
 

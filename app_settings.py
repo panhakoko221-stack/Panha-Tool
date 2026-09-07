@@ -9,10 +9,14 @@ import tempfile
 import uuid
 
 
-DEFAULT_SETTINGS = {"microsoft_client_id": ""}
+DEFAULT_SETTINGS = {
+    "microsoft_client_id": "",
+    "telemetry_consent": None,
+    "telemetry_installation_id": "",
+}
 
 
-def load_settings(path: str | os.PathLike[str]) -> dict[str, str]:
+def load_settings(path: str | os.PathLike[str]) -> dict[str, object]:
     target = Path(path)
     if not target.exists():
         return dict(DEFAULT_SETTINGS)
@@ -23,6 +27,11 @@ def load_settings(path: str | os.PathLike[str]) -> dict[str, str]:
     result = dict(DEFAULT_SETTINGS)
     if isinstance(data, dict):
         result["microsoft_client_id"] = str(data.get("microsoft_client_id", "")).strip()
+        consent = data.get("telemetry_consent")
+        result["telemetry_consent"] = consent if isinstance(consent, bool) else None
+        result["telemetry_installation_id"] = str(
+            data.get("telemetry_installation_id", "")
+        ).strip()
     return result
 
 
@@ -32,6 +41,12 @@ def save_settings(path: str | os.PathLike[str], settings: dict[str, object]) -> 
     payload = {
         "version": 1,
         "microsoft_client_id": str(settings.get("microsoft_client_id", "")).strip(),
+        "telemetry_consent": settings.get("telemetry_consent")
+        if isinstance(settings.get("telemetry_consent"), bool)
+        else None,
+        "telemetry_installation_id": str(
+            settings.get("telemetry_installation_id", "")
+        ).strip(),
     }
     handle, temp_name = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=target.parent)
     try:

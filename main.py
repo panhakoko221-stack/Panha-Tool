@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import uuid
 
 from PySide6.QtCore import (
     QObject,
@@ -57,6 +58,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSlider,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -76,6 +78,7 @@ from microsoft_oauth import (
 )
 from secure_store import SecureStoreError, load_accounts, mask_password, save_accounts
 from totp import InvalidTOTPSecret, generate_totp, totp_seconds_remaining
+from telemetry import register_installation
 from updater import (
     APP_VERSION,
     UpdateInfo,
@@ -636,6 +639,31 @@ def _button(text: str, object_name: str = "") -> QPushButton:
     return button
 
 
+class BackgroundColorSlider(QSlider):
+    """Rainbow hue slider used to choose the application's background tint."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(Qt.Orientation.Horizontal, parent)
+        self.setRange(0, 359)
+        self.setValue(188)
+        self.setFixedHeight(24)
+        self.setMinimumWidth(220)
+        self.setMaximumWidth(340)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setStyleSheet(
+            "QSlider::groove:horizontal {"
+            "height: 8px; border-radius: 4px;"
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            "stop:0 #ff3b30, stop:0.17 #ffcc00, stop:0.33 #34c759, "
+            "stop:0.50 #00d8f6, stop:0.67 #3478f6, stop:0.83 #af52de, "
+            "stop:1 #ff3b30); }"
+            "QSlider::handle:horizontal {"
+            "width: 18px; height: 18px; margin: -5px 0; border-radius: 9px;"
+            "background: #ffffff; border: 2px solid #0b1120; }"
+            "QSlider::handle:horizontal:hover { border-color: #ffffff; }"
+        )
+
+
 def validate_mail_alias(account: Account, alias: str) -> tuple[bool, str]:
     """Validate an optional Yandex plus-address for exact recipient preference."""
     candidate = str(alias or "").strip()
@@ -1049,6 +1077,7 @@ class MessageBodyDialog(QDialog):
 
 
 class TaskSignals(QObject):
+    started = Signal(int, str)
     completed = Signal(int, str, object)
 
 
@@ -1192,6 +1221,7 @@ class DeleteAllMailTask(QRunnable):
     def run(self) -> None:
         if self.cancel_event.is_set():
             return
+        self.signals.started.emit(self.run_id, self.account.email)
         try:
             result = delete_all_yandex_mail(self.account, timeout=18)
         except Exception:
@@ -1251,6 +1281,18 @@ class UpdateCheckTask(QRunnable):
                 self.signals.not_found.emit()
         except Exception as exc:
             self.signals.failed.emit(str(exc))
+
+
+class TelemetryTask(QRunnable):
+    """Send consented, pseudonymous installation metadata off the UI thread."""
+
+    def __init__(self, installation_id: str) -> None:
+        super().__init__()
+        self.installation_id = installation_id
+
+    @Slot()
+    def run(self) -> None:
+        register_installation(self.installation_id, APP_VERSION)
 
 
 class DownloadWorkerSignals(QObject):
@@ -1491,6 +1533,8 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._load_saved_accounts()
         QTimer.singleShot(2500, lambda: self._check_for_updates_interactive(manual=False))
+        if os.environ.get("QT_QPA_PLATFORM", "").casefold() != "offscreen":
+            QTimer.singleShot(1200, self._initialize_usage_registration)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -1531,6 +1575,22 @@ class MainWindow(QMainWindow):
         names.addWidget(subtitle)
         header_layout.addLayout(names)
         header_layout.addStretch(1)
+
+        self.background_color_slider = BackgroundColorSlider()
+        self.background_color_slider.setToolTip("Drag to change the application background color")
+        self.background_color_slider.valueChanged.connect(self._apply_background_color)
+        header_layout.addWidget(self.background_color_slider)
+        header_layout.addSpacing(14)
+
+        self.telemetry_checkbox = QCheckBox("Usage stats")
+        self.telemetry_checkbox.setToolTip(
+            "Share a random installation ID, app version, Windows version, "
+            "architecture, and last-seen time. No accounts, passwords, codes, or mail."
+        )
+        self.telemetry_checkbox.setChecked(self.settings.get("telemetry_consent") is True)
+        self.telemetry_checkbox.toggled.connect(self._usage_registration_toggled)
+        header_layout.addWidget(self.telemetry_checkbox)
+        header_layout.addSpacing(14)
 
         self.update_check_button = _button("Check update")
         self.update_check_button.setToolTip("Check for live application updates")
@@ -1614,10 +1674,11 @@ class MainWindow(QMainWindow):
         self.export_button = _button("Export file")
         self.remove_button = _button("Remove", "danger")
         self.alias_button = _button("Edit alias")
-        self.delete_all_yandex_button = _button("Delete all Yandex mail", "danger")
+        self.delete_all_yandex_button = _button("Delete selected Yandex mail", "danger")
         self.delete_all_yandex_button.setToolTip(
             "Permanently delete every message in every selectable folder of the "
-            "selected Yandex mailboxes. Folder structure is kept."
+            "selected Yandex mailboxes. Use Ctrl/Shift-click to select multiple "
+            "accounts. Folder structure is kept."
         )
         self.microsoft_button = _button("Connect Microsoft")
         self.fetch_selected_button = _button("Fetch selected")
@@ -1859,6 +1920,106 @@ class MainWindow(QMainWindow):
         ]
         self._switch_view(self.VIEW_YANDEX, announce=False)
         QTimer.singleShot(0, self._fit_columns)
+
+    @Slot(int)
+    def _apply_background_color(self, hue: int) -> None:
+        """Apply coordinated dark background shades based on the selected hue."""
+        background = QColor.fromHsv(hue, 115, 22)
+        header = QColor.fromHsv(hue, 105, 31)
+        panel = QColor.fromHsv(hue, 100, 40)
+        raised = QColor.fromHsv(hue, 90, 50)
+        input_color = QColor.fromHsv(hue, 105, 29)
+        alternate = QColor.fromHsv(hue, 95, 44)
+        border = QColor.fromHsv(hue, 85, 72)
+        background_css = f"""
+QMainWindow, QDialog, QWidget#root {{ background-color: {background.name()}; }}
+QFrame#header, QFrame#modeNav, QFrame#appFooter {{
+    background-color: {header.name()}; border-color: {border.name()};
+}}
+QFrame#card, QFrame#twoFactorCard, QFrame#sectionCard {{
+    background-color: {panel.name()};
+}}
+QTableWidget {{
+    background-color: {input_color.name()};
+    alternate-background-color: {alternate.name()};
+    gridline-color: {border.name()};
+}}
+QHeaderView, QHeaderView::section, QTableCornerButton::section {{
+    background-color: {panel.name()};
+}}
+QLineEdit, QPlainTextEdit, QComboBox, QCheckBox::indicator {{
+    background-color: {input_color.name()}; border-color: {border.name()};
+}}
+QPushButton {{ background-color: {raised.name()}; border-color: {border.name()}; }}
+QPushButton:hover {{ background-color: {raised.lighter(125).name()}; }}
+QMenu, QComboBox QAbstractItemView, QToolTip {{ background-color: {panel.name()}; }}
+QScrollBar:vertical, QScrollBar:horizontal, QProgressBar {{
+    background-color: {background.name()};
+}}
+"""
+        application = QApplication.instance()
+        if application is not None:
+            application.setStyleSheet(STYLE + background_css)
+
+    def _save_usage_preference(self, enabled: bool) -> None:
+        self.settings["telemetry_consent"] = enabled
+        try:
+            save_settings(SETTINGS_FILE, self.settings)
+        except OSError:
+            self.statusBar().showMessage("Could not save the usage-stats preference.", 5000)
+
+    def _initialize_usage_registration(self) -> None:
+        consent = self.settings.get("telemetry_consent")
+        if consent is True:
+            self._register_usage()
+            return
+        if consent is False:
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Anonymous usage statistics",
+            "Help improve Theara by sharing anonymous device statistics?\n\n"
+            "Shared: a random installation ID, app version, Windows version, "
+            "computer architecture, and last-seen time. The hosting service may "
+            "also process normal network metadata such as an IP address.\n\n"
+            "Never shared: email accounts, passwords, verification codes, mail, "
+            "hardware serial numbers, or your Windows username.\n\n"
+            "You can change this later with the Usage stats checkbox.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        enabled = answer == QMessageBox.StandardButton.Yes
+        self.telemetry_checkbox.blockSignals(True)
+        self.telemetry_checkbox.setChecked(enabled)
+        self.telemetry_checkbox.blockSignals(False)
+        self._save_usage_preference(enabled)
+        if enabled:
+            self._register_usage()
+
+    @Slot(bool)
+    def _usage_registration_toggled(self, enabled: bool) -> None:
+        self._save_usage_preference(enabled)
+        if enabled:
+            self._register_usage()
+            self.statusBar().showMessage("Anonymous usage statistics enabled.", 4000)
+        else:
+            self.statusBar().showMessage("Anonymous usage statistics disabled.", 4000)
+
+    def _register_usage(self) -> None:
+        if self.settings.get("telemetry_consent") is not True:
+            return
+        installation_id = str(self.settings.get("telemetry_installation_id", "")).strip()
+        try:
+            uuid.UUID(installation_id)
+        except ValueError:
+            installation_id = str(uuid.uuid4())
+            self.settings["telemetry_installation_id"] = installation_id
+            try:
+                save_settings(SETTINGS_FILE, self.settings)
+            except OSError:
+                return
+        self.thread_pool.start(TelemetryTask(installation_id))
 
     def _build_hotmail_page(self) -> QWidget:
         """Build the dedicated Hotmail/Outlook OAuth token and code extraction workspace."""
@@ -3730,23 +3891,19 @@ class MainWindow(QMainWindow):
             "disappear when their stored copies are deleted.\n\n"
             "Messages cannot be restored. Folder structure, labels, rules, and the "
             "saved account remain. Any Yandex alias preference is ignored. Mail delivered "
-            "after a folder snapshot may remain.\n\nType DELETE ALL MAIL to continue:"
+            "after a folder snapshot may remain.\n\n"
+            f"Click OK to permanently delete mail from {len(accounts)} selected "
+            "Yandex account(s), or Cancel to keep all mail."
         )
-        confirmation, accepted = QInputDialog.getText(
+        answer = QMessageBox.warning(
             self,
             "Permanently delete all Yandex mail",
             prompt,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
         )
-        if not accepted:
+        if answer != QMessageBox.StandardButton.Ok:
             self.statusBar().showMessage("Yandex mail deletion canceled.", 4000)
-            return
-        if confirmation.strip() != "DELETE ALL MAIL":
-            QMessageBox.information(
-                self,
-                "Delete canceled",
-                "Nothing was changed because the confirmation text did not match "
-                "DELETE ALL MAIL.",
-            )
             return
         self._start_delete_all_yandex_mail(accounts)
 
@@ -3767,6 +3924,7 @@ class MainWindow(QMainWindow):
         self._delete_unknowns = 0
         self._set_fetch_controls(True, can_stop=False)
         self.checked_card.value.setText(f"0 / {self._run_total}")
+        self.delete_all_yandex_button.setText(f"Deleting 0 / {self._run_total}...")
         # Some Yandex domains can be aliases for the same underlying mailbox.
         # Serial execution prevents two destructive sessions racing in that case.
         self.thread_pool.setMaxThreadCount(1)
@@ -3777,16 +3935,43 @@ class MainWindow(QMainWindow):
                 status_item = self._set_item(
                     row,
                     self.COL_STATUS,
-                    "Deleting all mail...",
+                    "Waiting to delete...",
                     "#f5c542",
                 )
                 status_item.setToolTip("")
             task = DeleteAllMailTask(self._run_id, account, self._cancel_event)
+            task.signals.started.connect(self._delete_all_yandex_mail_started)
             task.signals.completed.connect(self._delete_all_yandex_mail_completed)
             self.thread_pool.start(task)
         self.statusBar().showMessage(
             f"Permanently deleting all mail from {len(accounts)} selected Yandex "
             "mailbox(es)..."
+        )
+
+    @Slot(int, str)
+    def _delete_all_yandex_mail_started(self, run_id: int, address: str) -> None:
+        if (
+            run_id != self._run_id
+            or not self._active
+            or self._active_action != "delete_all_mail"
+        ):
+            return
+        current_number = min(self._run_completed + 1, self._run_total)
+        row = self._find_row(address)
+        if row >= 0:
+            status_item = self._set_item(
+                row,
+                self.COL_STATUS,
+                "Deleting all mail...",
+                "#f5c542",
+            )
+            status_item.setToolTip("Permanent deletion is currently running.")
+        self.delete_all_yandex_button.setText(
+            f"Deleting {current_number} / {self._run_total}..."
+        )
+        self.statusBar().showMessage(
+            f"Deleting Yandex mail for {address} "
+            f"({current_number} of {self._run_total})..."
         )
 
     @Slot(int, str, object)
@@ -3878,7 +4063,12 @@ class MainWindow(QMainWindow):
         self._update_metrics()
         self._filter_rows(self.filter_edit.text())
 
-        if not self._pending:
+        if self._pending:
+            self.statusBar().showMessage(
+                f"Completed {self._run_completed} / {self._run_total} selected "
+                "Yandex account(s). Continuing..."
+            )
+        else:
             failures = (
                 self._run_total
                 - self._delete_successes
@@ -3906,6 +4096,7 @@ class MainWindow(QMainWindow):
             self._active_action = ""
             self.thread_pool.setMaxThreadCount(4)
             self._set_fetch_controls(False)
+            self.delete_all_yandex_button.setText("Delete selected Yandex mail")
             self._update_metrics()
             self.statusBar().showMessage(summary, 10000)
 

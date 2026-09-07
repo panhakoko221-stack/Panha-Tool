@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import urllib.request
 
@@ -30,16 +31,38 @@ def save_github_config(cfg: dict[str, str]) -> None:
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 
+def load_git_credential() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=github.com\n\n",
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    for line in result.stdout.splitlines():
+        if line.startswith("password="):
+            return line.partition("=")[2].strip()
+    return ""
+
+
 def publish_github_release(
-    version: str = "1.0.1",
+    version: str = "1.0.3",
     tag_name: str | None = None,
     release_title: str | None = None,
-    changelog: str = "Live client auto-update release.",
+    changelog: str = "Simplified Yandex mail deletion, multi-account selection, and live deletion progress.",
 ) -> bool:
     cfg = load_github_config()
     owner = cfg.get("repo_owner", "").strip()
     repo = cfg.get("repo_name", "").strip()
-    token = cfg.get("github_token", "").strip()
+    token = (
+        cfg.get("github_token", "").strip()
+        or os.environ.get("GITHUB_TOKEN", "").strip()
+        or load_git_credential()
+    )
 
     if not owner or not repo:
         print("[Error] Please configure repo_owner and repo_name in github_config.json")
@@ -110,7 +133,7 @@ def publish_github_release(
         with urllib.request.urlopen(asset_req, timeout=60) as resp:
             print("[OK] Uploaded Theara.zip asset successfully!")
 
-        print(f"\n🎉 Successfully published {tag} live! All clients will now auto-update!")
+        print(f"\n[OK] Successfully published {tag} live. Clients can now auto-update.")
         return True
     except Exception as exc:
         print(f"[Error] Failed to publish release: {exc}")
@@ -118,5 +141,5 @@ def publish_github_release(
 
 
 if __name__ == "__main__":
-    v = sys.argv[1] if len(sys.argv) > 1 else "1.0.1"
+    v = sys.argv[1] if len(sys.argv) > 1 else "1.0.3"
     publish_github_release(v)

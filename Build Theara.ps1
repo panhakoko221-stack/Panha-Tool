@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [string]$Version = "1.0.3"
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,9 +48,13 @@ try {
         Copy-Item -LiteralPath $SendToDesktop -Destination $BundleDirectory -Force
     }
 
-    Invoke-Python -Arguments @("tools\export_bundle_accounts.py", $BundleDirectory)
-
-    foreach ($SensitiveName in @("accounts.secure.json", "settings.json", "microsoft_token_cache.secure.json")) {
+    foreach ($SensitiveName in @(
+        "accounts.txt",
+        "accounts.csv",
+        "accounts.secure.json",
+        "settings.json",
+        "microsoft_token_cache.secure.json"
+    )) {
         if (Get-ChildItem -LiteralPath $BundleDirectory -Recurse -File | Where-Object Name -EQ $SensitiveName) {
             throw "Sensitive app data was copied into the distributable: $SensitiveName"
         }
@@ -69,7 +74,7 @@ try {
     $ArchiveShort = Join-Path $ProjectRoot "dist\Theara.zip"
     Copy-Item -LiteralPath $Archive -Destination $ArchiveShort -Force
 
-    Invoke-Python -Arguments @("tools\generate_release_manifest.py", "1.0.1")
+    Invoke-Python -Arguments @("tools\generate_release_manifest.py", $Version)
 
     Write-Host ""
     Write-Host "Theara build completed successfully." -ForegroundColor Green
