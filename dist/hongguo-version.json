@@ -1,0 +1,7 @@
+{
+  "version": "1.1.0",
+  "title": "Hongguo Downloader v1.1.0",
+  "download_url": "https://github.com/panhakoko221-stack/Panha-Tool/releases/latest/download/HongguoDownloader-windows-x64.zip",
+  "sha256": "2e1d627bd6b98615d3dba4ac8a03a3f2e73a67f428462bf2af16226a15176e31",
+  "changelog": "Added secure one-click application updates from GitHub."
+}
