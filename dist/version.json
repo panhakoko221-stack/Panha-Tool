@@ -1,7 +1,9 @@
 {
-  "version": "1.0.3",
-  "title": "Theara v1.0.3",
-  "changelog": "Simplified Yandex mail deletion, multi-account selection, and live deletion progress.",
-  "download_url": "https://github.com/panhakoko221-stack/Panha-Tool/releases/latest/download/Theara.zip",
+  "app_id": "m-tool-get-code",
+  "version": "1.0.11",
+  "title": "M Tool Get Code v1.0.11",
+  "changelog": "Compatibility update for older Theara clients. Installs the current M Tool Get Code build with Yandex Mail and switches future updates to the supported channel.",
+  "download_url": "https://github.com/panhakoko221-stack/Panha-Tool-Updates/releases/download/m-tool-get-code-v1.0.11/M_Tool_Get_Code_v1.0.11_legacy_bridge.zip",
+  "sha256": "8ce293389c9c69df75b8a6b3537dbc7fd4a5c6e47e10a8e15f28f5e8b5e36af4",
   "mandatory": false
 }
